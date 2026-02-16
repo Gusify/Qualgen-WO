@@ -197,6 +197,8 @@ h1 {
 .pm-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
   margin-top: 4px;
 }
 
@@ -335,9 +337,22 @@ h1 {
   gap: 8px;
 }
 
+.global-calendar-cell.is-today {
+  border-color: rgba(13, 110, 253, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.2);
+  background: rgba(13, 110, 253, 0.06);
+}
+
 .global-calendar-cell.is-empty {
   background: rgba(31, 27, 22, 0.03);
   border-style: dashed;
+}
+
+.global-calendar-day-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .global-calendar-day {
@@ -372,6 +387,29 @@ h1 {
 
 .global-calendar-empty {
   margin-top: 12px;
+}
+
+.report-block {
+  margin-top: 16px;
+}
+
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.report-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-table {
+  margin-top: 8px;
 }
 
 .notes-list {
@@ -465,6 +503,11 @@ h1 {
 
   .global-calendar-controls {
     width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .report-head {
     flex-direction: column;
     align-items: flex-start;
   }

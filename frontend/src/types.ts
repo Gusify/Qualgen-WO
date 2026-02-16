@@ -45,6 +45,7 @@ export interface PreventativeMaintenance {
   assetId?: number | null
   title?: string | null
   recurrence?: string | null
+  scheduleAnchor?: string | null
   frequency?: string | null
   lastCompleted?: string | null
   nextDue?: string | null
@@ -70,3 +71,54 @@ export type LocationNoteInput = Omit<
   LocationNote,
   'id' | 'locationId' | 'createdAt' | 'updatedAt'
 >
+
+export interface PmCompletionHistory {
+  id: number
+  preventativeMaintenanceId: number
+  locationId: number
+  assetId?: number | null
+  dueDate: string
+  completedAt?: string | null
+  notes?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface PmCompletionHistoryInput {
+  dueDate: string
+  completedAt?: string | null
+  notes?: string | null
+}
+
+export interface PmComplianceReportRow {
+  preventativeMaintenanceId: number
+  title?: string | null
+  recurrence?: string | null
+  dueDate: string
+  completedAt?: string | null
+  status: 'completed-on-time' | 'completed-late' | 'missed' | 'scheduled'
+  happened: boolean
+  locationId: number
+  locationName: string
+  assetId?: number | null
+  assetLabel: string
+  notes?: string | null
+}
+
+export interface PmComplianceReportSummary {
+  total: number
+  completedOnTime: number
+  completedLate: number
+  missed: number
+  scheduled: number
+}
+
+export interface PmComplianceReportResponse {
+  range: {
+    start: string
+    end: string
+    locationId: number | null
+  }
+  summary: PmComplianceReportSummary
+  rows: PmComplianceReportRow[]
+}

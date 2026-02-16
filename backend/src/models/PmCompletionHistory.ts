@@ -5,20 +5,34 @@ import {
   DataType,
   ForeignKey,
   BelongsTo,
-  HasMany,
 } from 'sequelize-typescript'
+import { PreventativeMaintenance } from './PreventativeMaintenance'
 import { Location } from './Location'
 import { Asset } from './Asset'
-import { PmCompletionHistory } from './PmCompletionHistory'
 
-@Table({ tableName: 'preventative_maintenances' })
-export class PreventativeMaintenance extends Model<PreventativeMaintenance> {
+@Table({
+  tableName: 'pm_completion_history',
+  indexes: [
+    {
+      unique: true,
+      fields: ['preventativeMaintenanceId', 'dueDate'],
+    },
+  ],
+})
+export class PmCompletionHistory extends Model<PmCompletionHistory> {
   @Column({
     type: DataType.INTEGER,
     autoIncrement: true,
     primaryKey: true,
   })
   declare id: number
+
+  @ForeignKey(() => PreventativeMaintenance)
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare preventativeMaintenanceId: number
+
+  @BelongsTo(() => PreventativeMaintenance)
+  declare preventativeMaintenanceRef?: PreventativeMaintenance
 
   @ForeignKey(() => Location)
   @Column({ type: DataType.INTEGER, allowNull: false })
@@ -34,27 +48,12 @@ export class PreventativeMaintenance extends Model<PreventativeMaintenance> {
   @BelongsTo(() => Asset)
   declare assetRef?: Asset
 
-  @Column(DataType.STRING)
-  declare title?: string | null
+  @Column({ type: DataType.STRING, allowNull: false })
+  declare dueDate: string
 
   @Column(DataType.STRING)
-  declare recurrence?: string | null
-
-  @Column(DataType.STRING)
-  declare scheduleAnchor?: string | null
-
-  @Column(DataType.STRING)
-  declare frequency?: string | null
-
-  @Column(DataType.STRING)
-  declare lastCompleted?: string | null
-
-  @Column(DataType.STRING)
-  declare nextDue?: string | null
+  declare completedAt?: string | null
 
   @Column(DataType.TEXT)
   declare notes?: string | null
-
-  @HasMany(() => PmCompletionHistory)
-  declare completionHistory?: PmCompletionHistory[]
 }

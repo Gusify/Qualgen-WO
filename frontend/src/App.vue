@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from './services/api'
 import type {
   Location,
@@ -7,6 +7,8 @@ import type {
   AssetInput,
   PreventativeMaintenance,
   PreventativeMaintenanceInput,
+  PmComplianceReportRow,
+  PmComplianceReportSummary,
   LocationNote,
   LocationNoteInput,
 } from './types'
@@ -38,7 +40,7 @@ const sortedLocations = computed(() => {
 })
 
 const assetFields = [
-  { key: 'aid', label: 'AID' },
+  { key: 'aid', label: 'Asset ID' },
   { key: 'manufacturerModel', label: 'Manufacturer/Model' },
   { key: 'equipmentDescription', label: 'Equipment Description' },
   { key: 'location', label: 'Location' },
@@ -155,6 +157,29 @@ const noteSaving = ref(false)
 const activeNoteLocationId = ref<number | null>(null)
 const noteDraft = reactive<LocationNoteInput>(emptyNoteDraft())
 
+const completionDialog = ref(false)
+const completionSaving = ref(false)
+const activeCompletionLocationId = ref<number | null>(null)
+const completionDraft = reactive({
+  pmId: null as number | null,
+  dueDate: '',
+  completedAt: '',
+  notes: '',
+})
+
+const emptyReportSummary = (): PmComplianceReportSummary => ({
+  total: 0,
+  completedOnTime: 0,
+  completedLate: 0,
+  missed: 0,
+  scheduled: 0,
+})
+
+const pmReportLoading = ref(false)
+const pmReportError = ref('')
+const pmReportRows = ref<PmComplianceReportRow[]>([])
+const pmReportSummary = reactive<PmComplianceReportSummary>(emptyReportSummary())
+
 const snackbar = reactive({
   show: false,
   message: '',
@@ -185,6 +210,8 @@ const toIsoDate = (date: Date) => {
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+const todayIso = () => toIsoDate(new Date())
 
 const parseIsoDate = (value?: string | null) => {
   if (!value) return null
@@ -219,6 +246,20 @@ const asRecurrenceValue = (value?: string | null): RecurrenceValue | null => {
 const recurrenceLabel = (value?: string | null) => {
   const normalized = asRecurrenceValue(value)
   return normalized ? recurrenceLabels[normalized] : '—'
+}
+
+const reportStatusLabel = (status: PmComplianceReportRow['status']) => {
+  if (status === 'completed-on-time') return 'Completed On Time'
+  if (status === 'completed-late') return 'Completed Late'
+  if (status === 'missed') return 'Missed'
+  return 'Scheduled'
+}
+
+const reportStatusColor = (status: PmComplianceReportRow['status']) => {
+  if (status === 'completed-on-time') return 'success'
+  if (status === 'completed-late') return 'warning'
+  if (status === 'missed') return 'error'
+  return 'secondary'
 }
 
 const nextRecurringDate = (date: Date, recurrence: RecurrenceValue) => {
@@ -317,6 +358,27 @@ const getMonthBounds = (month: string) => {
   end.setHours(23, 59, 59, 999)
 
   return { start, end, year, monthNumber, daysInMonth: end.getDate() }
+}
+
+const loadPmComplianceReport = async () => {
+  pmReportLoading.value = true
+  pmReportError.value = ''
+  try {
+    const { start, end } = getMonthBounds(globalCalendarMonth.value)
+    const report = await api.getPmComplianceReport({
+      start: toIsoDate(start),
+      end: toIsoDate(end),
+    })
+    pmReportRows.value = report.rows
+    Object.assign(pmReportSummary, report.summary)
+  } catch (error) {
+    pmReportRows.value = []
+    Object.assign(pmReportSummary, emptyReportSummary())
+    pmReportError.value =
+      error instanceof Error ? error.message : 'Failed to load PM report'
+  } finally {
+    pmReportLoading.value = false
+  }
 }
 
 const buildLocationEventsBetween = (
@@ -465,6 +527,17 @@ const shiftGlobalCalendarMonth = (offset: number) => {
   ).padStart(2, '0')}`
 }
 
+const globalCalendarToday = computed(() => todayIso())
+
+const isTodayCalendarDate = (date?: string | null) => {
+  if (!date) return false
+  return date === globalCalendarToday.value
+}
+
+const jumpGlobalCalendarToToday = () => {
+  globalCalendarMonth.value = globalCalendarToday.value.slice(0, 7)
+}
+
 const toggleViewMode = () => {
   viewMode.value = viewMode.value === 'locations' ? 'global-calendar' : 'locations'
 }
@@ -491,6 +564,7 @@ const refreshAll = async () => {
         calendarMonthByLocation[location.id] || defaultCalendarMonth
       await loadLocationData(location.id)
     }
+    await loadPmComplianceReport()
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load'
     errorMessage.value = message
@@ -516,6 +590,18 @@ const openNoteDialog = (locationId: number) => {
   activeNoteLocationId.value = locationId
   Object.assign(noteDraft, emptyNoteDraft())
   noteDialog.value = true
+}
+
+const openCompletionDialog = (
+  locationId: number,
+  item: PreventativeMaintenance
+) => {
+  activeCompletionLocationId.value = locationId
+  completionDraft.pmId = item.id
+  completionDraft.dueDate = item.nextDue?.trim() || todayIso()
+  completionDraft.completedAt = todayIso()
+  completionDraft.notes = ''
+  completionDialog.value = true
 }
 
 const submitAsset = async () => {
@@ -608,6 +694,39 @@ const submitNote = async () => {
   }
 }
 
+const submitCompletion = async () => {
+  const locationId = activeCompletionLocationId.value
+  const pmId = completionDraft.pmId
+  if (!locationId || !pmId) return
+
+  const dueDate = completionDraft.dueDate.trim()
+  const completedAt = completionDraft.completedAt.trim()
+  if (!dueDate || !completedAt) {
+    setSnackbar('Due date and completed date are required', 'error')
+    return
+  }
+
+  completionSaving.value = true
+  try {
+    const result = await api.createPreventativeCompletionHistory(pmId, {
+      dueDate,
+      completedAt,
+      notes: completionDraft.notes.trim() || null,
+    })
+    preventatives[locationId] = preventativesFor(locationId).map((item) =>
+      item.id === pmId ? result.preventativeMaintenance : item
+    )
+    completionDialog.value = false
+    setSnackbar('PM completion logged')
+    await loadPmComplianceReport()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to log completion'
+    setSnackbar(message, 'error')
+  } finally {
+    completionSaving.value = false
+  }
+}
+
 const removeAsset = async (locationId: number, id: number) => {
   try {
     await api.deleteAsset(id)
@@ -645,6 +764,10 @@ const removeNote = async (locationId: number, id: number) => {
 
 onMounted(() => {
   refreshAll()
+})
+
+watch(globalCalendarMonth, () => {
+  loadPmComplianceReport()
 })
 </script>
 
@@ -798,6 +921,14 @@ onMounted(() => {
                     </div>
                     <div class="pm-actions">
                       <v-btn
+                        size="x-small"
+                        variant="tonal"
+                        color="primary"
+                        @click="openCompletionDialog(location.id, item)"
+                      >
+                        Log Completion
+                      </v-btn>
+                      <v-btn
                         icon="mdi-delete"
                         size="x-small"
                         variant="text"
@@ -913,6 +1044,14 @@ onMounted(() => {
                   variant="tonal"
                   @click="shiftGlobalCalendarMonth(1)"
                 />
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  prepend-icon="mdi-calendar-today"
+                  @click="jumpGlobalCalendarToToday"
+                >
+                  Today
+                </v-btn>
               </div>
               <v-text-field
                 v-model="globalCalendarMonth"
@@ -944,10 +1083,20 @@ onMounted(() => {
               v-for="(cell, index) in globalCalendarCells"
               :key="cell.date ?? `blank-${index}`"
               class="global-calendar-cell"
-              :class="{ 'is-empty': !cell.date }"
+              :class="{ 'is-empty': !cell.date, 'is-today': isTodayCalendarDate(cell.date) }"
             >
               <template v-if="cell.date">
-                <div class="global-calendar-day">{{ cell.dayLabel }}</div>
+                <div class="global-calendar-day-row">
+                  <div class="global-calendar-day">{{ cell.dayLabel }}</div>
+                  <v-chip
+                    v-if="isTodayCalendarDate(cell.date)"
+                    size="x-small"
+                    color="primary"
+                    variant="flat"
+                  >
+                    Today
+                  </v-chip>
+                </div>
                 <div v-if="cell.items.length" class="global-calendar-cell-events">
                   <div
                     v-for="event in cell.items"
@@ -969,6 +1118,68 @@ onMounted(() => {
 
           <div v-if="!globalCalendarTotal" class="empty global-calendar-empty">
             No PM dates scheduled for this month.
+          </div>
+
+          <div class="report-block">
+            <div class="report-head">
+              <div class="global-calendar-title">PM Compliance Report</div>
+              <div class="report-summary">
+                <v-chip size="small" color="success" variant="tonal">
+                  On Time: {{ pmReportSummary.completedOnTime }}
+                </v-chip>
+                <v-chip size="small" color="warning" variant="tonal">
+                  Late: {{ pmReportSummary.completedLate }}
+                </v-chip>
+                <v-chip size="small" color="error" variant="tonal">
+                  Missed: {{ pmReportSummary.missed }}
+                </v-chip>
+              </div>
+            </div>
+
+            <div v-if="pmReportError" class="error-banner">
+              {{ pmReportError }}
+            </div>
+
+            <div v-else-if="pmReportLoading" class="empty">
+              Loading compliance report...
+            </div>
+
+            <div v-else-if="!pmReportRows.length" class="empty">
+              No PM report rows for this month.
+            </div>
+
+            <div v-else class="table-wrap report-table">
+              <v-table density="compact" fixed-header height="280">
+                <thead>
+                  <tr>
+                    <th>Due Date</th>
+                    <th>Status</th>
+                    <th>Location</th>
+                    <th>PM</th>
+                    <th>Asset</th>
+                    <th>Completed At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in pmReportRows" :key="`${row.preventativeMaintenanceId}-${row.dueDate}`">
+                    <td>{{ formatDate(row.dueDate) }}</td>
+                    <td>
+                      <v-chip
+                        size="x-small"
+                        :color="reportStatusColor(row.status)"
+                        variant="outlined"
+                      >
+                        {{ reportStatusLabel(row.status) }}
+                      </v-chip>
+                    </td>
+                    <td>{{ row.locationName }}</td>
+                    <td>{{ formatValue(row.title) }}</td>
+                    <td>{{ row.assetLabel }}</td>
+                    <td>{{ formatDate(row.completedAt) || '—' }}</td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </div>
           </div>
         </v-card>
       </div>
@@ -1108,6 +1319,54 @@ onMounted(() => {
             @click="submitPreventative"
           >
             Save PM
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="completionDialog" max-width="520">
+      <v-card class="dialog-card">
+        <v-card-title>Log PM Completion</v-card-title>
+        <v-card-text>
+          <div class="dialog-grid small">
+            <v-text-field
+              v-model="completionDraft.dueDate"
+              label="Due Date"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="completionDraft.completedAt"
+              label="Completed Date"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-textarea
+              v-model="completionDraft.notes"
+              label="Completion Notes"
+              variant="outlined"
+              density="comfortable"
+              rows="3"
+              hide-details
+            />
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="completionDialog = false">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="completionSaving"
+            @click="submitCompletion"
+          >
+            Save Completion
           </v-btn>
         </v-card-actions>
       </v-card>

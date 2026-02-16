@@ -6,6 +6,9 @@ import type {
   WorkOrderInput,
   PreventativeMaintenance,
   PreventativeMaintenanceInput,
+  PmCompletionHistory,
+  PmCompletionHistoryInput,
+  PmComplianceReportResponse,
   LocationNote,
   LocationNoteInput,
 } from '../types'
@@ -79,6 +82,37 @@ export const api = {
     return request<{ deleted: boolean }>(
       `/api/preventative-maintenances/${id}`,
       { method: 'DELETE' }
+    )
+  },
+  getPreventativeCompletionHistory(id: number) {
+    return request<PmCompletionHistory[]>(
+      `/api/preventative-maintenances/${id}/completion-history`
+    )
+  },
+  createPreventativeCompletionHistory(
+    id: number,
+    payload: PmCompletionHistoryInput
+  ) {
+    return request<{
+      history: PmCompletionHistory
+      preventativeMaintenance: PreventativeMaintenance
+    }>(`/api/preventative-maintenances/${id}/completion-history`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  getPmComplianceReport(params?: {
+    start?: string
+    end?: string
+    locationId?: number
+  }) {
+    const searchParams = new URLSearchParams()
+    if (params?.start) searchParams.set('start', params.start)
+    if (params?.end) searchParams.set('end', params.end)
+    if (params?.locationId) searchParams.set('locationId', String(params.locationId))
+    const query = searchParams.toString()
+    return request<PmComplianceReportResponse>(
+      `/api/reports/pm-compliance${query ? `?${query}` : ''}`
     )
   },
   getNotes(locationId: number) {
