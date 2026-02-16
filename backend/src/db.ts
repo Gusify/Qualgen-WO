@@ -1,6 +1,7 @@
 import { Sequelize } from 'sequelize-typescript'
 import { Location } from './models/Location'
 import { WorkOrder } from './models/WorkOrder'
+import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 
@@ -18,7 +19,7 @@ export const sequelize = new Sequelize({
   username: dbUser,
   password: dbPassword,
   logging: false,
-  models: [Location, WorkOrder, PreventativeMaintenance, LocationNote],
+  models: [Location, WorkOrder, Asset, PreventativeMaintenance, LocationNote],
 })
 
 const defaultLocations = [

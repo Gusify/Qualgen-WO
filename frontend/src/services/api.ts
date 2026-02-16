@@ -1,5 +1,7 @@
 import type {
   Location,
+  Asset,
+  AssetInput,
   WorkOrder,
   WorkOrderInput,
   PreventativeMaintenance,
@@ -30,6 +32,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getLocations() {
     return request<Location[]>('/api/locations')
+  },
+  getAssets(locationId: number) {
+    return request<Asset[]>(`/api/locations/${locationId}/assets`)
+  },
+  createAsset(locationId: number, payload: AssetInput) {
+    return request<Asset>(`/api/locations/${locationId}/assets`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteAsset(id: number) {
+    return request<{ deleted: boolean }>(`/api/assets/${id}`, {
+      method: 'DELETE',
+    })
   },
   getWorkOrders(locationId: number) {
     return request<WorkOrder[]>(`/api/locations/${locationId}/workorders`)

@@ -6,6 +6,7 @@ import {
   HasMany,
 } from 'sequelize-typescript'
 import { WorkOrder } from './WorkOrder'
+import { Asset } from './Asset'
 import { PreventativeMaintenance } from './PreventativeMaintenance'
 import { LocationNote } from './LocationNote'
 
@@ -27,6 +28,9 @@ export class Location extends Model<Location> {
 
   @HasMany(() => WorkOrder)
   declare workOrders?: WorkOrder[]
+
+  @HasMany(() => Asset)
+  declare assets?: Asset[]
 
   @HasMany(() => PreventativeMaintenance)
   declare preventativeMaintenances?: PreventativeMaintenance[]

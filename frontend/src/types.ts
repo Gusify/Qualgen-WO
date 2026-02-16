@@ -35,6 +35,10 @@ export type WorkOrderInput = Omit<
   'id' | 'locationId' | 'createdAt' | 'updatedAt'
 >
 
+export type Asset = WorkOrder
+
+export type AssetInput = WorkOrderInput
+
 export interface PreventativeMaintenance {
   id: number
   locationId: number

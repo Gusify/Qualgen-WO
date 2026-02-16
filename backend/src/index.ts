@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { initDb } from './db'
 import { Location } from './models/Location'
 import { WorkOrder } from './models/WorkOrder'
+import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 
@@ -34,6 +35,8 @@ const workOrderSchema = z.object({
   reviewerInitialDate: z.string().optional().nullable(),
   reconciledWithCrossList: z.string().optional().nullable(),
 })
+
+const assetSchema = workOrderSchema
 
 const preventativeSchema = z.object({
   title: z.string().optional().nullable(),
@@ -70,6 +73,64 @@ app.get('/api/locations/:locationId/workorders', async (req, res) => {
   res.json(workOrders)
 })
 
+app.get('/api/assets', async (_req, res) => {
+  const assets = await Asset.findAll({
+    order: [['createdAt', 'DESC']],
+  })
+  res.json(assets)
+})
+
+app.get('/api/locations/:locationId/assets', async (req, res) => {
+  const locationId = Number(req.params.locationId)
+  if (Number.isNaN(locationId)) {
+    res.status(400).json({ error: 'Invalid location id' })
+    return
+  }
+
+  const assets = await Asset.findAll({
+    where: { locationId },
+    order: [['createdAt', 'DESC']],
+  })
+  res.json(assets)
+})
+
+app.post('/api/locations/:locationId/assets', async (req, res) => {
+  const locationId = Number(req.params.locationId)
+  if (Number.isNaN(locationId)) {
+    res.status(400).json({ error: 'Invalid location id' })
+    return
+  }
+
+  const parsed = assetSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const location = await Location.findByPk(locationId)
+  if (!location) {
+    res.status(404).json({ error: 'Location not found' })
+    return
+  }
+
+  const asset = await Asset.create({
+    locationId,
+    ...parsed.data,
+  } as any)
+  res.status(201).json(asset)
+})
+
+app.delete('/api/assets/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid asset id' })
+    return
+  }
+
+  const deleted = await Asset.destroy({ where: { id } })
+  res.json({ deleted: deleted > 0 })
+})
+
 app.post('/api/locations/:locationId/workorders', async (req, res) => {
   const locationId = Number(req.params.locationId)
   if (Number.isNaN(locationId)) {
@@ -92,7 +153,7 @@ app.post('/api/locations/:locationId/workorders', async (req, res) => {
   const workOrder = await WorkOrder.create({
     locationId,
     ...parsed.data,
-  })
+  } as any)
   res.status(201).json(workOrder)
 })
 
@@ -143,7 +204,7 @@ app.post('/api/locations/:locationId/preventative-maintenances', async (req, res
   const item = await PreventativeMaintenance.create({
     locationId,
     ...parsed.data,
-  })
+  } as any)
   res.status(201).json(item)
 })
 
@@ -194,7 +255,7 @@ app.post('/api/locations/:locationId/notes', async (req, res) => {
   const note = await LocationNote.create({
     locationId,
     content: parsed.data.content,
-  })
+  } as any)
   res.status(201).json(note)
 })
 

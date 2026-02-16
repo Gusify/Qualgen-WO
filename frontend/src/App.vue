@@ -3,8 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from './services/api'
 import type {
   Location,
-  WorkOrder,
-  WorkOrderInput,
+  Asset,
+  AssetInput,
   PreventativeMaintenance,
   PreventativeMaintenanceInput,
   LocationNote,
@@ -16,7 +16,7 @@ const errorMessage = ref('')
 const locations = ref<Location[]>([])
 
 const tabByLocation = reactive<Record<number, string>>({})
-const workOrders = reactive<Record<number, WorkOrder[]>>({})
+const assets = reactive<Record<number, Asset[]>>({})
 const preventatives = reactive<Record<number, PreventativeMaintenance[]>>({})
 const notes = reactive<Record<number, LocationNote[]>>({})
 
@@ -33,7 +33,7 @@ const sortedLocations = computed(() => {
   })
 })
 
-const workOrderFields = [
+const assetFields = [
   { key: 'aid', label: 'AID' },
   { key: 'manufacturerModel', label: 'Manufacturer/Model' },
   { key: 'equipmentDescription', label: 'Equipment Description' },
@@ -56,7 +56,7 @@ const workOrderFields = [
   { key: 'reconciledWithCrossList', label: "Reconciled with Cross' List" },
 ] as const
 
-const emptyWorkOrderDraft = (): WorkOrderInput => ({
+const emptyAssetDraft = (): AssetInput => ({
   aid: '',
   manufacturerModel: '',
   equipmentDescription: '',
@@ -79,10 +79,10 @@ const emptyWorkOrderDraft = (): WorkOrderInput => ({
   reconciledWithCrossList: '',
 })
 
-const workOrderDialog = ref(false)
-const workOrderSaving = ref(false)
-const activeWorkOrderLocationId = ref<number | null>(null)
-const workOrderDraft = reactive<WorkOrderInput>(emptyWorkOrderDraft())
+const assetDialog = ref(false)
+const assetSaving = ref(false)
+const activeAssetLocationId = ref<number | null>(null)
+const assetDraft = reactive<AssetInput>(emptyAssetDraft())
 
 const emptyPreventativeDraft = (): PreventativeMaintenanceInput => ({
   title: '',
@@ -126,13 +126,13 @@ const formatValue = (value?: string | null) => {
   return trimmed.length === 0 ? '—' : trimmed
 }
 
-const formatDate = (value?: string) => {
+const formatDate = (value?: string | null) => {
   if (!value) return ''
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
 }
 
-const workOrdersFor = (locationId: number) => workOrders[locationId] ?? []
+const assetsFor = (locationId: number) => assets[locationId] ?? []
 const preventativesFor = (locationId: number) => preventatives[locationId] ?? []
 const notesFor = (locationId: number) => notes[locationId] ?? []
 
@@ -149,12 +149,12 @@ const cleanPayload = <T extends Record<string, unknown>>(payload: T) => {
 }
 
 const loadLocationData = async (locationId: number) => {
-  const [workOrderData, pmData, noteData] = await Promise.all([
-    api.getWorkOrders(locationId),
+  const [assetData, pmData, noteData] = await Promise.all([
+    api.getAssets(locationId),
     api.getPreventatives(locationId),
     api.getNotes(locationId),
   ])
-  workOrders[locationId] = workOrderData
+  assets[locationId] = assetData
   preventatives[locationId] = pmData
   notes[locationId] = noteData
 }
@@ -165,7 +165,7 @@ const refreshAll = async () => {
   try {
     locations.value = await api.getLocations()
     for (const location of locations.value) {
-      tabByLocation[location.id] = tabByLocation[location.id] || 'work'
+      tabByLocation[location.id] = tabByLocation[location.id] || 'assets'
       await loadLocationData(location.id)
     }
   } catch (error) {
@@ -177,10 +177,10 @@ const refreshAll = async () => {
   }
 }
 
-const openWorkOrderDialog = (locationId: number) => {
-  activeWorkOrderLocationId.value = locationId
-  Object.assign(workOrderDraft, emptyWorkOrderDraft())
-  workOrderDialog.value = true
+const openAssetDialog = (locationId: number) => {
+  activeAssetLocationId.value = locationId
+  Object.assign(assetDraft, emptyAssetDraft())
+  assetDialog.value = true
 }
 
 const openPreventativeDialog = (locationId: number) => {
@@ -195,26 +195,23 @@ const openNoteDialog = (locationId: number) => {
   noteDialog.value = true
 }
 
-const submitWorkOrder = async () => {
-  if (!activeWorkOrderLocationId.value) return
-  workOrderSaving.value = true
+const submitAsset = async () => {
+  if (!activeAssetLocationId.value) return
+  assetSaving.value = true
   try {
-    const payload = cleanPayload({ ...workOrderDraft })
-    const created = await api.createWorkOrder(
-      activeWorkOrderLocationId.value,
-      payload
-    )
-    workOrders[activeWorkOrderLocationId.value] = [
+    const payload = cleanPayload({ ...assetDraft })
+    const created = await api.createAsset(activeAssetLocationId.value, payload)
+    assets[activeAssetLocationId.value] = [
       created,
-      ...workOrdersFor(activeWorkOrderLocationId.value),
+      ...assetsFor(activeAssetLocationId.value),
     ]
-    workOrderDialog.value = false
-    setSnackbar('Work order saved')
+    assetDialog.value = false
+    setSnackbar('Asset saved to library')
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save'
     setSnackbar(message, 'error')
   } finally {
-    workOrderSaving.value = false
+    assetSaving.value = false
   }
 }
 
@@ -265,13 +262,11 @@ const submitNote = async () => {
   }
 }
 
-const removeWorkOrder = async (locationId: number, id: number) => {
+const removeAsset = async (locationId: number, id: number) => {
   try {
-    await api.deleteWorkOrder(id)
-    workOrders[locationId] = workOrdersFor(locationId).filter(
-      (item) => item.id !== id
-    )
-    setSnackbar('Work order deleted')
+    await api.deleteAsset(id)
+    assets[locationId] = assetsFor(locationId).filter((item) => item.id !== id)
+    setSnackbar('Asset deleted from library')
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete'
     setSnackbar(message, 'error')
@@ -313,7 +308,7 @@ onMounted(() => {
       <header class="top-bar">
         <div>
           <div class="eyebrow">Qualgen</div>
-          <h1>Work Orders, PMs, and Notes</h1>
+          <h1>Assets, PMs, and Notes</h1>
           <p class="subtitle">
             Four location lanes with dedicated tracking for equipment, PM cycles,
             and operational notes.
@@ -341,7 +336,7 @@ onMounted(() => {
               <div>
                 <div class="lane-title">{{ location.name }}</div>
                 <div class="lane-meta">
-                  {{ workOrdersFor(location.id).length }} work orders ·
+                  {{ assetsFor(location.id).length }} assets ·
                   {{ preventativesFor(location.id).length }} PMs ·
                   {{ notesFor(location.id).length }} notes
                 </div>
@@ -351,9 +346,9 @@ onMounted(() => {
                   size="small"
                   color="primary"
                   variant="flat"
-                  @click="openWorkOrderDialog(location.id)"
+                  @click="openAssetDialog(location.id)"
                 >
-                  Add Work Order
+                  Add Asset
                 </v-btn>
                 <v-btn
                   size="small"
@@ -379,41 +374,32 @@ onMounted(() => {
               color="primary"
               density="compact"
             >
-              <v-tab value="work">Work Orders</v-tab>
+              <v-tab value="assets">Assets</v-tab>
               <v-tab value="pm">Preventative Maintenance</v-tab>
               <v-tab value="notes">Notes</v-tab>
             </v-tabs>
 
             <v-window v-model="tabByLocation[location.id]" class="lane-window">
-              <v-window-item value="work">
-                <div v-if="!workOrdersFor(location.id).length" class="empty">
-                  No work orders yet. Add one to start tracking equipment.
+              <v-window-item value="assets">
+                <div v-if="!assetsFor(location.id).length" class="empty">
+                  No assets yet. Add one to start tracking equipment.
                 </div>
                 <div v-else class="table-wrap">
                   <v-table density="compact" fixed-header height="360">
                     <thead>
                       <tr>
-                        <th
-                          v-for="header in workOrderFields"
-                          :key="header.key"
-                        >
+                        <th v-for="header in assetFields" :key="header.key">
                           {{ header.label }}
                         </th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr
-                        v-for="item in workOrdersFor(location.id)"
-                        :key="item.id"
-                      >
-                        <td
-                          v-for="header in workOrderFields"
-                          :key="header.key"
-                        >
+                      <tr v-for="item in assetsFor(location.id)" :key="item.id">
+                        <td v-for="header in assetFields" :key="header.key">
                           {{
                             formatValue(
-                              item[header.key as keyof WorkOrder] as string | null
+                              item[header.key as keyof Asset] as string | null
                             )
                           }}
                         </td>
@@ -422,7 +408,7 @@ onMounted(() => {
                             icon="mdi-delete"
                             size="x-small"
                             variant="text"
-                            @click="removeWorkOrder(location.id, item.id)"
+                            @click="removeAsset(location.id, item.id)"
                           />
                         </td>
                       </tr>
@@ -495,15 +481,15 @@ onMounted(() => {
       </div>
     </div>
 
-    <v-dialog v-model="workOrderDialog" max-width="900">
+    <v-dialog v-model="assetDialog" max-width="900">
       <v-card class="dialog-card">
-        <v-card-title>New Work Order</v-card-title>
+        <v-card-title>Add Asset</v-card-title>
         <v-card-text>
           <div class="dialog-grid">
             <v-text-field
-              v-for="field in workOrderFields"
+              v-for="field in assetFields"
               :key="field.key"
-              v-model="workOrderDraft[field.key as keyof WorkOrderInput]"
+              v-model="assetDraft[field.key as keyof AssetInput]"
               :label="field.label"
               variant="outlined"
               density="comfortable"
@@ -513,16 +499,16 @@ onMounted(() => {
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="workOrderDialog = false">
+          <v-btn variant="text" @click="assetDialog = false">
             Cancel
           </v-btn>
           <v-btn
             color="primary"
             variant="flat"
-            :loading="workOrderSaving"
-            @click="submitWorkOrder"
+            :loading="assetSaving"
+            @click="submitAsset"
           >
-            Save Work Order
+            Save Asset
           </v-btn>
         </v-card-actions>
       </v-card>
