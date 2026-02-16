@@ -15,6 +15,9 @@ const loading = ref(true)
 const errorMessage = ref('')
 const locations = ref<Location[]>([])
 
+type ViewMode = 'locations' | 'global-calendar'
+const viewMode = ref<ViewMode>('locations')
+
 const tabByLocation = reactive<Record<number, string>>({})
 const assets = reactive<Record<number, Asset[]>>({})
 const preventatives = reactive<Record<number, PreventativeMaintenance[]>>({})
@@ -84,6 +87,19 @@ const defaultCalendarMonth = (() => {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   return `${now.getFullYear()}-${month}`
 })()
+
+const globalCalendarMonth = ref(defaultCalendarMonth)
+const weekdayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const pageTitle = computed(() =>
+  viewMode.value === 'locations' ? 'Assets, PMs, and Notes' : 'PM Master Calendar'
+)
+
+const pageSubtitle = computed(() =>
+  viewMode.value === 'locations'
+    ? 'Four location lanes with dedicated tracking for equipment, PM cycles, and operational notes.'
+    : 'Full recurring preventive maintenance calendar across every location.'
+)
 
 const emptyAssetDraft = (): AssetInput => ({
   aid: '',
@@ -263,6 +279,17 @@ interface CalendarDayGroup {
   items: CalendarEvent[]
 }
 
+interface GlobalCalendarEvent extends CalendarEvent {
+  locationId: number
+  locationName: string
+}
+
+interface GlobalCalendarCell {
+  date: string | null
+  dayLabel: string
+  items: GlobalCalendarEvent[]
+}
+
 const cleanPayload = <T extends Record<string, unknown>>(payload: T) => {
   return Object.fromEntries(
     Object.entries(payload).map(([key, value]) => {
@@ -275,13 +302,29 @@ const cleanPayload = <T extends Record<string, unknown>>(payload: T) => {
   ) as T
 }
 
-const buildCalendarEvents = (locationId: number, horizonMonths = 12) => {
-  const events: CalendarEvent[] = []
-  const startBoundary = new Date()
-  startBoundary.setHours(0, 0, 0, 0)
+const getMonthBounds = (month: string) => {
+  const [yearRaw, monthRaw] = month.split('-').map((part) => Number(part))
+  const fallbackYear = Number(defaultCalendarMonth.slice(0, 4))
+  const fallbackMonth = Number(defaultCalendarMonth.slice(5, 7))
+  const year = Number.isFinite(yearRaw ?? NaN) ? Number(yearRaw) : fallbackYear
+  const monthNumber = Number.isFinite(monthRaw ?? NaN)
+    ? Number(monthRaw)
+    : fallbackMonth
 
-  const endBoundary = new Date(startBoundary)
-  endBoundary.setMonth(endBoundary.getMonth() + horizonMonths)
+  const start = new Date(year, monthNumber - 1, 1)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(year, monthNumber, 0)
+  end.setHours(23, 59, 59, 999)
+
+  return { start, end, year, monthNumber, daysInMonth: end.getDate() }
+}
+
+const buildLocationEventsBetween = (
+  locationId: number,
+  startBoundary: Date,
+  endBoundary: Date
+) => {
+  const events: CalendarEvent[] = []
 
   for (const item of preventativesFor(locationId)) {
     const recurrence = asRecurrenceValue(item.recurrence ?? item.frequency)
@@ -290,20 +333,23 @@ const buildCalendarEvents = (locationId: number, horizonMonths = 12) => {
     if (!recurrence || !firstDate) continue
 
     let occurrence = new Date(firstDate)
-    let counter = 0
+    let safety = 0
 
-    while (occurrence <= endBoundary && counter < 120) {
-      if (occurrence >= startBoundary) {
-        events.push({
-          key: `${item.id}-${toIsoDate(occurrence)}-${counter}`,
-          date: toIsoDate(occurrence),
-          title: preventativeTitleFor(locationId, item),
-          assetLabel: assetNameFor(locationId, item.assetId),
-          recurrenceLabel: recurrenceLabels[recurrence],
-        })
-      }
+    while (occurrence < startBoundary && safety < 500) {
       occurrence = nextRecurringDate(occurrence, recurrence)
-      counter += 1
+      safety += 1
+    }
+
+    while (occurrence <= endBoundary && safety < 600) {
+      events.push({
+        key: `${locationId}-${item.id}-${toIsoDate(occurrence)}-${safety}`,
+        date: toIsoDate(occurrence),
+        title: preventativeTitleFor(locationId, item),
+        assetLabel: assetNameFor(locationId, item.assetId),
+        recurrenceLabel: recurrenceLabels[recurrence],
+      })
+      occurrence = nextRecurringDate(occurrence, recurrence)
+      safety += 1
     }
   }
 
@@ -312,9 +358,10 @@ const buildCalendarEvents = (locationId: number, horizonMonths = 12) => {
 
 const calendarEventsForMonth = (locationId: number) => {
   const month = calendarMonthByLocation[locationId] || defaultCalendarMonth
-  return buildCalendarEvents(locationId)
-    .filter((event) => event.date.startsWith(month))
-    .reduce<CalendarDayGroup[]>((groups, event) => {
+  const { start, end } = getMonthBounds(month)
+
+  return buildLocationEventsBetween(locationId, start, end).reduce<CalendarDayGroup[]>(
+    (groups, event) => {
       const last = groups[groups.length - 1]
       if (!last || last.date !== event.date) {
         groups.push({ date: event.date, items: [event] })
@@ -322,7 +369,9 @@ const calendarEventsForMonth = (locationId: number) => {
         last.items.push(event)
       }
       return groups
-    }, [])
+    },
+    []
+  )
 }
 
 const calendarCountForMonth = (locationId: number) => {
@@ -330,6 +379,94 @@ const calendarCountForMonth = (locationId: number) => {
     (count, group) => count + group.items.length,
     0
   )
+}
+
+const globalCalendarEventsForMonth = computed(() => {
+  const { start, end } = getMonthBounds(globalCalendarMonth.value)
+  const events: GlobalCalendarEvent[] = []
+
+  for (const location of sortedLocations.value) {
+    const locationEvents = buildLocationEventsBetween(location.id, start, end)
+    for (const event of locationEvents) {
+      events.push({
+        ...event,
+        locationId: location.id,
+        locationName: location.name,
+      })
+    }
+  }
+
+  return events.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.locationName.localeCompare(b.locationName) ||
+      a.title.localeCompare(b.title)
+  )
+})
+
+const globalCalendarTotal = computed(() => globalCalendarEventsForMonth.value.length)
+
+const globalCalendarMonthLabel = computed(() => {
+  const { start } = getMonthBounds(globalCalendarMonth.value)
+  return start.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  })
+})
+
+const globalCalendarEventsByDate = computed(() => {
+  const grouped: Record<string, GlobalCalendarEvent[]> = {}
+  for (const event of globalCalendarEventsForMonth.value) {
+    const bucket = grouped[event.date] ?? []
+    bucket.push(event)
+    grouped[event.date] = bucket
+  }
+  return grouped
+})
+
+const globalCalendarCells = computed(() => {
+  const { year, monthNumber, daysInMonth, start } = getMonthBounds(globalCalendarMonth.value)
+  const cells: GlobalCalendarCell[] = []
+  const firstWeekday = start.getDay()
+
+  for (let index = 0; index < firstWeekday; index += 1) {
+    cells.push({
+      date: null,
+      dayLabel: '',
+      items: [],
+    })
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const isoDate = `${year}-${String(monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    cells.push({
+      date: isoDate,
+      dayLabel: String(day),
+      items: globalCalendarEventsByDate.value[isoDate] ?? [],
+    })
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({
+      date: null,
+      dayLabel: '',
+      items: [],
+    })
+  }
+
+  return cells
+})
+
+const shiftGlobalCalendarMonth = (offset: number) => {
+  const { start } = getMonthBounds(globalCalendarMonth.value)
+  const next = addMonths(start, offset)
+  globalCalendarMonth.value = `${next.getFullYear()}-${String(
+    next.getMonth() + 1
+  ).padStart(2, '0')}`
+}
+
+const toggleViewMode = () => {
+  viewMode.value = viewMode.value === 'locations' ? 'global-calendar' : 'locations'
 }
 
 const loadLocationData = async (locationId: number) => {
@@ -517,13 +654,19 @@ onMounted(() => {
       <header class="top-bar">
         <div>
           <div class="eyebrow">Qualgen</div>
-          <h1>Assets, PMs, and Notes</h1>
+          <h1>{{ pageTitle }}</h1>
           <p class="subtitle">
-            Four location lanes with dedicated tracking for equipment, PM cycles,
-            and operational notes.
+            {{ pageSubtitle }}
           </p>
         </div>
         <div class="top-actions">
+          <v-btn
+            color="primary"
+            variant="flat"
+            @click="toggleViewMode"
+          >
+            {{ viewMode === 'locations' ? 'Full PM Calendar' : 'Location Boards' }}
+          </v-btn>
           <v-btn variant="tonal" color="primary" @click="refreshAll">
             Refresh
           </v-btn>
@@ -538,7 +681,7 @@ onMounted(() => {
         {{ errorMessage }}
       </div>
 
-      <div class="lane-grid">
+      <div v-if="viewMode === 'locations'" class="lane-grid">
         <div v-for="location in sortedLocations" :key="location.id">
           <v-card class="lane-card" elevation="8">
             <div class="lane-header">
@@ -747,6 +890,87 @@ onMounted(() => {
             </v-window>
           </v-card>
         </div>
+      </div>
+
+      <div v-else class="global-calendar-page">
+        <v-card class="global-calendar-card" elevation="8">
+          <div class="global-calendar-header">
+            <div>
+              <div class="global-calendar-title">{{ globalCalendarMonthLabel }}</div>
+              <div class="lane-meta">All scheduled PM occurrences across locations</div>
+            </div>
+            <div class="global-calendar-controls">
+              <div class="calendar-nav-arrows">
+                <v-btn
+                  icon="mdi-chevron-left"
+                  size="small"
+                  variant="tonal"
+                  @click="shiftGlobalCalendarMonth(-1)"
+                />
+                <v-btn
+                  icon="mdi-chevron-right"
+                  size="small"
+                  variant="tonal"
+                  @click="shiftGlobalCalendarMonth(1)"
+                />
+              </div>
+              <v-text-field
+                v-model="globalCalendarMonth"
+                type="month"
+                label="Month"
+                density="comfortable"
+                variant="outlined"
+                hide-details
+                class="calendar-month-input"
+              />
+              <v-chip color="primary" variant="tonal" size="small">
+                {{ globalCalendarTotal }} scheduled
+              </v-chip>
+            </div>
+          </div>
+
+          <div class="global-calendar-weekdays">
+            <div
+              v-for="weekday in weekdayHeaders"
+              :key="weekday"
+              class="global-calendar-weekday"
+            >
+              {{ weekday }}
+            </div>
+          </div>
+
+          <div class="global-calendar-grid">
+            <div
+              v-for="(cell, index) in globalCalendarCells"
+              :key="cell.date ?? `blank-${index}`"
+              class="global-calendar-cell"
+              :class="{ 'is-empty': !cell.date }"
+            >
+              <template v-if="cell.date">
+                <div class="global-calendar-day">{{ cell.dayLabel }}</div>
+                <div v-if="cell.items.length" class="global-calendar-cell-events">
+                  <div
+                    v-for="event in cell.items"
+                    :key="event.key"
+                    class="global-calendar-item"
+                  >
+                    <div class="global-calendar-item-title">{{ event.title }}</div>
+                    <div class="global-calendar-item-meta">
+                      {{ event.locationName }} · {{ event.assetLabel }}
+                    </div>
+                    <div class="global-calendar-item-meta">
+                      {{ event.recurrenceLabel }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div v-if="!globalCalendarTotal" class="empty global-calendar-empty">
+            No PM dates scheduled for this month.
+          </div>
+        </v-card>
       </div>
     </div>
 
