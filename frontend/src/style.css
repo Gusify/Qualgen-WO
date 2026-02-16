@@ -90,6 +90,12 @@ h1 {
   gap: 20px;
 }
 
+.location-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .lane-card {
   background: var(--paper);
   border-radius: 18px;
@@ -99,6 +105,10 @@ h1 {
   display: flex;
   flex-direction: column;
   min-height: 540px;
+}
+
+.notes-lane-card {
+  min-height: 0;
 }
 
 .lane-header {
@@ -128,6 +138,19 @@ h1 {
 
 .lane-window {
   margin-top: 8px;
+}
+
+.notes-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.notes-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .empty {
@@ -270,6 +293,10 @@ h1 {
   display: block;
 }
 
+.contacts-page {
+  display: block;
+}
+
 .global-calendar-card {
   padding: 16px;
   border-radius: 18px;
@@ -278,7 +305,23 @@ h1 {
   box-shadow: 0 12px 30px var(--shadow);
 }
 
+.contacts-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--paper);
+  border: 1px solid rgba(31, 27, 22, 0.08);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+
 .global-calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.contacts-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -442,18 +485,6 @@ h1 {
   border-radius: 16px;
 }
 
-.asset-dialog-top {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 6px;
-}
-
-.asset-dialog-toggles {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
 .dialog-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -462,6 +493,10 @@ h1 {
 
 .dialog-grid.small {
   grid-template-columns: 1fr;
+}
+
+.contact-notes {
+  margin-top: 12px;
 }
 
 @media (max-width: 1400px) {
@@ -486,6 +521,11 @@ h1 {
     align-items: center;
   }
 
+  .notes-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .calendar-toolbar {
     flex-direction: column;
     align-items: flex-start;
@@ -497,6 +537,11 @@ h1 {
   }
 
   .global-calendar-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .contacts-header {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -531,15 +576,6 @@ h1 {
 
   .global-calendar-cell.is-empty {
     display: none;
-  }
-
-  .asset-dialog-top {
-    justify-content: flex-start;
-  }
-
-  .asset-dialog-toggles {
-    flex-wrap: wrap;
-    gap: 8px;
   }
 
   .dialog-grid {

@@ -3,6 +3,23 @@ export interface Location {
   name: string
 }
 
+export interface Contact {
+  id: number
+  company?: string | null
+  contactName?: string | null
+  department?: string | null
+  email?: string | null
+  phone?: string | null
+  mobile?: string | null
+  locationName?: string | null
+  address?: string | null
+  notes?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type ContactInput = Omit<Contact, 'id' | 'createdAt' | 'updatedAt'>
+
 export interface WorkOrder {
   id: number
   locationId: number
@@ -47,6 +64,10 @@ export interface PreventativeMaintenance {
   recurrence?: string | null
   scheduleAnchor?: string | null
   frequency?: string | null
+  pmFreq?: string | null
+  lastPm?: string | null
+  pm?: string | null
+  revalidationCertification?: string | null
   lastCompleted?: string | null
   nextDue?: string | null
   notes?: string | null

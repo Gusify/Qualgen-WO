@@ -47,6 +47,18 @@ export class PreventativeMaintenance extends Model<PreventativeMaintenance> {
   declare frequency?: string | null
 
   @Column(DataType.STRING)
+  declare pmFreq?: string | null
+
+  @Column(DataType.STRING)
+  declare lastPm?: string | null
+
+  @Column(DataType.STRING)
+  declare pm?: string | null
+
+  @Column(DataType.STRING)
+  declare revalidationCertification?: string | null
+
+  @Column(DataType.STRING)
   declare lastCompleted?: string | null
 
   @Column(DataType.STRING)

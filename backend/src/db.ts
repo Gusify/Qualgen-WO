@@ -5,6 +5,7 @@ import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
+import { Contact } from './models/Contact'
 
 const dbHost = process.env.DB_HOST || 'localhost'
 const dbPort = Number(process.env.DB_PORT) || 3306
@@ -27,6 +28,7 @@ export const sequelize = new Sequelize({
     PreventativeMaintenance,
     LocationNote,
     PmCompletionHistory,
+    Contact,
   ],
 })
 

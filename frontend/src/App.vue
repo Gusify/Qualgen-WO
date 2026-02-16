@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from './services/api'
 import type {
+  Contact,
+  ContactInput,
   Location,
   Asset,
   AssetInput,
@@ -16,8 +18,9 @@ import type {
 const loading = ref(true)
 const errorMessage = ref('')
 const locations = ref<Location[]>([])
+const contacts = ref<Contact[]>([])
 
-type ViewMode = 'locations' | 'global-calendar'
+type ViewMode = 'locations' | 'global-calendar' | 'contacts'
 const viewMode = ref<ViewMode>('locations')
 
 const tabByLocation = reactive<Record<number, string>>({})
@@ -39,27 +42,37 @@ const sortedLocations = computed(() => {
   })
 })
 
-const assetFields = [
+const assetTableFields = [
   { key: 'aid', label: 'Asset ID' },
   { key: 'manufacturerModel', label: 'Manufacturer/Model' },
   { key: 'equipmentDescription', label: 'Equipment Description' },
   { key: 'location', label: 'Location' },
-  { key: 'activeRetired', label: 'Active/Retired' },
   { key: 'owner', label: 'Owner' },
-  { key: 'calDue', label: 'Cal Due' },
   { key: 'serialNumber', label: 'Serial Number' },
-  { key: 'gmp', label: 'GMP' },
-  { key: 'pmFreq', label: 'PM Freq' },
-  { key: 'lastPm', label: 'Last PM' },
-  { key: 'pm', label: 'PM' },
-  { key: 'revalidationCertification', label: 'Revalidation/Certification?' },
-  { key: 'calFreq', label: 'Cal Freq' },
-  { key: 'lastCalibration', label: 'Last Calibration' },
-  { key: 'calibrationRange', label: 'Calibration Range' },
   { key: 'sop', label: 'SOP' },
   { key: 'notes', label: 'Notes' },
-  { key: 'reviewerInitialDate', label: 'Reviewer Initial/Date' },
-  { key: 'reconciledWithCrossList', label: "Reconciled with Cross' List" },
+] as const
+
+const assetDialogFields = [
+  { key: 'aid', label: 'Asset ID' },
+  { key: 'manufacturerModel', label: 'Manufacturer/Model' },
+  { key: 'equipmentDescription', label: 'Equipment Description' },
+  { key: 'location', label: 'Location' },
+  { key: 'owner', label: 'Owner' },
+  { key: 'serialNumber', label: 'Serial Number' },
+  { key: 'revalidationCertification', label: 'Revalidation/Certification?' },
+  { key: 'sop', label: 'SOP' },
+  { key: 'notes', label: 'Notes' },
+] as const
+
+const contactTableFields = [
+  { key: 'company', label: 'Company' },
+  { key: 'contactName', label: 'Contact Name' },
+  { key: 'department', label: 'Department' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Office Phone' },
+  { key: 'mobile', label: 'Mobile' },
+  { key: 'locationName', label: 'Location' },
 ] as const
 
 const preventativeRecurrenceOptions = [
@@ -93,49 +106,92 @@ const defaultCalendarMonth = (() => {
 const globalCalendarMonth = ref(defaultCalendarMonth)
 const weekdayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const pageTitle = computed(() =>
-  viewMode.value === 'locations' ? 'Assets, PMs, and Notes' : 'PM Master Calendar'
-)
+const pageTitle = computed(() => {
+  if (viewMode.value === 'locations') return 'Assets, PMs, and Notes'
+  if (viewMode.value === 'global-calendar') return 'Calendar'
+  return 'Business Contacts'
+})
 
-const pageSubtitle = computed(() =>
-  viewMode.value === 'locations'
-    ? 'Four location lanes with dedicated tracking for equipment, PM cycles, and operational notes.'
-    : 'Full recurring preventive maintenance calendar across every location.'
-)
+const pageSubtitle = computed(() => {
+  if (viewMode.value === 'locations') {
+    return 'Four location lanes with dedicated tracking for equipment, PM cycles, and operational notes.'
+  }
+  if (viewMode.value === 'global-calendar') {
+    return 'Full recurring preventive maintenance and calibration calendar across every location.'
+  }
+  return 'Company-wide contact directory for vendors, service providers, and key partners.'
+})
 
 const emptyAssetDraft = (): AssetInput => ({
   aid: '',
   manufacturerModel: '',
   equipmentDescription: '',
   location: '',
-  activeRetired: 'Active',
   owner: '',
-  calDue: '',
   serialNumber: '',
-  gmp: 'No',
-  pmFreq: '',
-  lastPm: '',
-  pm: '',
   revalidationCertification: '',
-  calFreq: '',
-  lastCalibration: '',
-  calibrationRange: '',
   sop: '',
   notes: '',
-  reviewerInitialDate: '',
-  reconciledWithCrossList: '',
 })
 
 const assetDialog = ref(false)
 const assetSaving = ref(false)
 const activeAssetLocationId = ref<number | null>(null)
+const activeAssetEditId = ref<number | null>(null)
 const assetDraft = reactive<AssetInput>(emptyAssetDraft())
+
+const assetDialogTitle = computed(() =>
+  activeAssetEditId.value ? 'Edit Asset' : 'Add Asset'
+)
+
+const assetDialogSaveLabel = computed(() =>
+  activeAssetEditId.value ? 'Save Changes' : 'Save Asset'
+)
+
+const emptyContactDraft = (): ContactInput => ({
+  company: '',
+  contactName: '',
+  department: '',
+  email: '',
+  phone: '',
+  mobile: '',
+  locationName: '',
+  address: '',
+  notes: '',
+})
+
+const contactDialog = ref(false)
+const contactSaving = ref(false)
+const activeContactEditId = ref<number | null>(null)
+const contactDraft = reactive<ContactInput>(emptyContactDraft())
+
+const contactDialogTitle = computed(() =>
+  activeContactEditId.value ? 'Edit Contact' : 'Add Contact'
+)
+
+const contactDialogSaveLabel = computed(() =>
+  activeContactEditId.value ? 'Save Changes' : 'Save Contact'
+)
+
+const emptyCalibrationDraft = () => ({
+  assetId: null as number | null,
+  calDue: '',
+  calFreq: '',
+  calibrationRange: '',
+  lastCalibration: '',
+})
+
+const calibrationDialog = ref(false)
+const calibrationSaving = ref(false)
+const activeCalibrationLocationId = ref<number | null>(null)
+const calibrationDraft = reactive(emptyCalibrationDraft())
 
 const emptyPreventativeDraft = (): PreventativeMaintenanceInput => ({
   assetId: null,
   title: '',
   recurrence: 'monthly',
   frequency: 'monthly',
+  lastPm: '',
   lastCompleted: '',
   nextDue: '',
   notes: '',
@@ -248,6 +304,47 @@ const recurrenceLabel = (value?: string | null) => {
   return normalized ? recurrenceLabels[normalized] : '—'
 }
 
+const recurrenceFromFrequencyText = (value?: string | null): RecurrenceValue | null => {
+  if (!value) return null
+  const normalized = value
+    .toLowerCase()
+    .trim()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+
+  const direct = asRecurrenceValue(normalized)
+  if (direct) return direct
+
+  const aliases: Record<string, RecurrenceValue> = {
+    weekly: 'weekly',
+    'every-week': 'weekly',
+    biweekly: 'bi-weekly',
+    'bi-weekly': 'bi-weekly',
+    'every-2-weeks': 'bi-weekly',
+    monthly: 'monthly',
+    'every-month': 'monthly',
+    bimonthly: 'bi-monthly',
+    'bi-monthly': 'bi-monthly',
+    'every-2-months': 'bi-monthly',
+    quarterly: 'quarterly',
+    'every-3-months': 'quarterly',
+    'every-6-months': 'every-6-months',
+    '6-months': 'every-6-months',
+    semiannual: 'every-6-months',
+    'semi-annual': 'every-6-months',
+    yearly: 'yearly',
+    annual: 'yearly',
+    annually: 'yearly',
+    'every-year': 'yearly',
+    'bi-yearly': 'bi-yearly',
+    biyearly: 'bi-yearly',
+    biennial: 'bi-yearly',
+    'every-2-years': 'bi-yearly',
+  }
+
+  return aliases[normalized] ?? null
+}
+
 const reportStatusLabel = (status: PmComplianceReportRow['status']) => {
   if (status === 'completed-on-time') return 'Completed On Time'
   if (status === 'completed-late') return 'Completed Late'
@@ -307,12 +404,31 @@ const preventativeAssetOptions = computed(() => {
   }))
 })
 
+const calibrationAssetOptions = computed(() => {
+  if (!activeCalibrationLocationId.value) return []
+  return assetsFor(activeCalibrationLocationId.value).map((asset) => ({
+    title: assetDisplayLabel(asset),
+    value: asset.id,
+  }))
+})
+
+const locationNameFor = (locationId?: number | null) => {
+  if (!locationId) return ''
+  return locations.value.find((location) => location.id === locationId)?.name ?? ''
+}
+
+const noteDialogTitle = computed(() => {
+  const name = locationNameFor(activeNoteLocationId.value)
+  return name ? `New Note - ${name}` : 'New Note'
+})
+
 interface CalendarEvent {
   key: string
   date: string
   title: string
   assetLabel: string
   recurrenceLabel: string
+  eventTypeLabel: 'PM' | 'Calibration'
 }
 
 interface CalendarDayGroup {
@@ -409,6 +525,50 @@ const buildLocationEventsBetween = (
         title: preventativeTitleFor(locationId, item),
         assetLabel: assetNameFor(locationId, item.assetId),
         recurrenceLabel: recurrenceLabels[recurrence],
+        eventTypeLabel: 'PM',
+      })
+      occurrence = nextRecurringDate(occurrence, recurrence)
+      safety += 1
+    }
+  }
+
+  for (const asset of assetsFor(locationId)) {
+    const firstDate = parseIsoDate(asset.calDue)
+    if (!firstDate) continue
+
+    const recurrence = recurrenceFromFrequencyText(asset.calFreq)
+    const assetLabel = assetDisplayLabel(asset)
+
+    if (!recurrence) {
+      if (firstDate >= startBoundary && firstDate <= endBoundary) {
+        events.push({
+          key: `cal-${locationId}-${asset.id}-${toIsoDate(firstDate)}`,
+          date: toIsoDate(firstDate),
+          title: 'Calibration Due',
+          assetLabel,
+          recurrenceLabel: formatValue(asset.calFreq) === '—' ? 'One-time' : formatValue(asset.calFreq),
+          eventTypeLabel: 'Calibration',
+        })
+      }
+      continue
+    }
+
+    let occurrence = new Date(firstDate)
+    let safety = 0
+
+    while (occurrence < startBoundary && safety < 500) {
+      occurrence = nextRecurringDate(occurrence, recurrence)
+      safety += 1
+    }
+
+    while (occurrence <= endBoundary && safety < 600) {
+      events.push({
+        key: `cal-${locationId}-${asset.id}-${toIsoDate(occurrence)}-${safety}`,
+        date: toIsoDate(occurrence),
+        title: 'Calibration Due',
+        assetLabel,
+        recurrenceLabel: recurrenceLabels[recurrence],
+        eventTypeLabel: 'Calibration',
       })
       occurrence = nextRecurringDate(occurrence, recurrence)
       safety += 1
@@ -538,8 +698,8 @@ const jumpGlobalCalendarToToday = () => {
   globalCalendarMonth.value = globalCalendarToday.value.slice(0, 7)
 }
 
-const toggleViewMode = () => {
-  viewMode.value = viewMode.value === 'locations' ? 'global-calendar' : 'locations'
+const setViewMode = (mode: ViewMode) => {
+  viewMode.value = mode
 }
 
 const loadLocationData = async (locationId: number) => {
@@ -557,7 +717,12 @@ const refreshAll = async () => {
   loading.value = true
   errorMessage.value = ''
   try {
-    locations.value = await api.getLocations()
+    const [locationData, contactData] = await Promise.all([
+      api.getLocations(),
+      api.getContacts(),
+    ])
+    locations.value = locationData
+    contacts.value = contactData
     for (const location of locations.value) {
       tabByLocation[location.id] = tabByLocation[location.id] || 'assets'
       calendarMonthByLocation[location.id] =
@@ -576,8 +741,69 @@ const refreshAll = async () => {
 
 const openAssetDialog = (locationId: number) => {
   activeAssetLocationId.value = locationId
+  activeAssetEditId.value = null
   Object.assign(assetDraft, emptyAssetDraft())
   assetDialog.value = true
+}
+
+const openEditAssetDialog = (locationId: number, item: Asset) => {
+  activeAssetLocationId.value = locationId
+  activeAssetEditId.value = item.id
+  Object.assign(assetDraft, {
+    aid: item.aid ?? '',
+    manufacturerModel: item.manufacturerModel ?? '',
+    equipmentDescription: item.equipmentDescription ?? '',
+    location: item.location ?? '',
+    owner: item.owner ?? '',
+    serialNumber: item.serialNumber ?? '',
+    revalidationCertification: item.revalidationCertification ?? '',
+    sop: item.sop ?? '',
+    notes: item.notes ?? '',
+  })
+  assetDialog.value = true
+}
+
+const closeAssetDialog = () => {
+  assetDialog.value = false
+  activeAssetEditId.value = null
+}
+
+const openContactDialog = () => {
+  activeContactEditId.value = null
+  Object.assign(contactDraft, emptyContactDraft())
+  contactDialog.value = true
+}
+
+const openEditContactDialog = (item: Contact) => {
+  activeContactEditId.value = item.id
+  Object.assign(contactDraft, {
+    company: item.company ?? '',
+    contactName: item.contactName ?? '',
+    department: item.department ?? '',
+    email: item.email ?? '',
+    phone: item.phone ?? '',
+    mobile: item.mobile ?? '',
+    locationName: item.locationName ?? '',
+    address: item.address ?? '',
+    notes: item.notes ?? '',
+  })
+  contactDialog.value = true
+}
+
+const closeContactDialog = () => {
+  contactDialog.value = false
+  activeContactEditId.value = null
+}
+
+const openCalibrationDialog = (locationId: number) => {
+  activeCalibrationLocationId.value = locationId
+  Object.assign(calibrationDraft, emptyCalibrationDraft())
+  const options = assetsFor(locationId)
+  const firstAsset = options[0]
+  if (firstAsset) {
+    calibrationDraft.assetId = firstAsset.id
+  }
+  calibrationDialog.value = true
 }
 
 const openPreventativeDialog = (locationId: number) => {
@@ -609,18 +835,85 @@ const submitAsset = async () => {
   assetSaving.value = true
   try {
     const payload = cleanPayload({ ...assetDraft })
-    const created = await api.createAsset(activeAssetLocationId.value, payload)
-    assets[activeAssetLocationId.value] = [
-      created,
-      ...assetsFor(activeAssetLocationId.value),
-    ]
-    assetDialog.value = false
-    setSnackbar('Asset saved to library')
+    const editId = activeAssetEditId.value
+
+    if (editId) {
+      const updated = await api.updateAsset(editId, payload)
+      assets[activeAssetLocationId.value] = assetsFor(
+        activeAssetLocationId.value
+      ).map((item) => (item.id === updated.id ? updated : item))
+      closeAssetDialog()
+      setSnackbar('Asset updated')
+    } else {
+      const created = await api.createAsset(activeAssetLocationId.value, payload)
+      assets[activeAssetLocationId.value] = [
+        created,
+        ...assetsFor(activeAssetLocationId.value),
+      ]
+      closeAssetDialog()
+      setSnackbar('Asset saved to library')
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save'
     setSnackbar(message, 'error')
   } finally {
     assetSaving.value = false
+  }
+}
+
+const submitCalibration = async () => {
+  const locationId = activeCalibrationLocationId.value
+  const assetId = calibrationDraft.assetId
+  if (!locationId || !assetId) {
+    setSnackbar('Select an asset to update calibration', 'error')
+    return
+  }
+
+  calibrationSaving.value = true
+  try {
+    const payload = cleanPayload({
+      calDue: calibrationDraft.calDue,
+      calFreq: calibrationDraft.calFreq,
+      calibrationRange: calibrationDraft.calibrationRange,
+      lastCalibration: calibrationDraft.lastCalibration,
+    })
+    const updated = await api.updateAsset(assetId, payload)
+    assets[locationId] = assetsFor(locationId).map((item) =>
+      item.id === updated.id ? updated : item
+    )
+    calibrationDialog.value = false
+    setSnackbar('Calibration saved')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save calibration'
+    setSnackbar(message, 'error')
+  } finally {
+    calibrationSaving.value = false
+  }
+}
+
+const submitContact = async () => {
+  contactSaving.value = true
+  try {
+    const payload = cleanPayload({ ...contactDraft })
+    const editId = activeContactEditId.value
+    if (editId) {
+      const updated = await api.updateContact(editId, payload)
+      contacts.value = contacts.value.map((item) =>
+        item.id === updated.id ? updated : item
+      )
+      closeContactDialog()
+      setSnackbar('Contact updated')
+    } else {
+      const created = await api.createContact(payload)
+      contacts.value = [created, ...contacts.value]
+      closeContactDialog()
+      setSnackbar('Contact saved')
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save contact'
+    setSnackbar(message, 'error')
+  } finally {
+    contactSaving.value = false
   }
 }
 
@@ -762,6 +1055,17 @@ const removeNote = async (locationId: number, id: number) => {
   }
 }
 
+const removeContact = async (id: number) => {
+  try {
+    await api.deleteContact(id)
+    contacts.value = contacts.value.filter((item) => item.id !== id)
+    setSnackbar('Contact deleted')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to delete'
+    setSnackbar(message, 'error')
+  }
+}
+
 onMounted(() => {
   refreshAll()
 })
@@ -785,10 +1089,24 @@ watch(globalCalendarMonth, () => {
         <div class="top-actions">
           <v-btn
             color="primary"
-            variant="flat"
-            @click="toggleViewMode"
+            :variant="viewMode === 'locations' ? 'flat' : 'tonal'"
+            @click="setViewMode('locations')"
           >
-            {{ viewMode === 'locations' ? 'Full PM Calendar' : 'Location Boards' }}
+            Location Boards
+          </v-btn>
+          <v-btn
+            color="primary"
+            :variant="viewMode === 'global-calendar' ? 'flat' : 'tonal'"
+            @click="setViewMode('global-calendar')"
+          >
+            Calendar
+          </v-btn>
+          <v-btn
+            color="primary"
+            :variant="viewMode === 'contacts' ? 'flat' : 'tonal'"
+            @click="setViewMode('contacts')"
+          >
+            Contacts
           </v-btn>
           <v-btn variant="tonal" color="primary" @click="refreshAll">
             Refresh
@@ -805,7 +1123,7 @@ watch(globalCalendarMonth, () => {
       </div>
 
       <div v-if="viewMode === 'locations'" class="lane-grid">
-        <div v-for="location in sortedLocations" :key="location.id">
+        <div v-for="location in sortedLocations" :key="location.id" class="location-stack">
           <v-card class="lane-card" elevation="8">
             <div class="lane-header">
               <div>
@@ -828,18 +1146,18 @@ watch(globalCalendarMonth, () => {
                 <v-btn
                   size="small"
                   color="secondary"
-                  variant="tonal"
-                  @click="openPreventativeDialog(location.id)"
+                  variant="outlined"
+                  @click="openCalibrationDialog(location.id)"
                 >
-                  Add PM
+                  Add Calibration
                 </v-btn>
                 <v-btn
                   size="small"
                   color="secondary"
-                  variant="outlined"
-                  @click="openNoteDialog(location.id)"
+                  variant="tonal"
+                  @click="openPreventativeDialog(location.id)"
                 >
-                  Add Note
+                  Add PM
                 </v-btn>
               </div>
             </div>
@@ -852,7 +1170,6 @@ watch(globalCalendarMonth, () => {
               <v-tab value="assets">Assets</v-tab>
               <v-tab value="pm">Preventative Maintenance</v-tab>
               <v-tab value="calendar">Calendar</v-tab>
-              <v-tab value="notes">Notes</v-tab>
             </v-tabs>
 
             <v-window v-model="tabByLocation[location.id]" class="lane-window">
@@ -864,7 +1181,7 @@ watch(globalCalendarMonth, () => {
                   <v-table density="compact" fixed-header height="360">
                     <thead>
                       <tr>
-                        <th v-for="header in assetFields" :key="header.key">
+                        <th v-for="header in assetTableFields" :key="header.key">
                           {{ header.label }}
                         </th>
                         <th>Actions</th>
@@ -872,7 +1189,7 @@ watch(globalCalendarMonth, () => {
                     </thead>
                     <tbody>
                       <tr v-for="item in assetsFor(location.id)" :key="item.id">
-                        <td v-for="header in assetFields" :key="header.key">
+                        <td v-for="header in assetTableFields" :key="header.key">
                           {{
                             formatValue(
                               item[header.key as keyof Asset] as string | null
@@ -880,6 +1197,12 @@ watch(globalCalendarMonth, () => {
                           }}
                         </td>
                         <td>
+                          <v-btn
+                            icon="mdi-pencil"
+                            size="x-small"
+                            variant="text"
+                            @click="openEditAssetDialog(location.id, item)"
+                          />
                           <v-btn
                             icon="mdi-delete"
                             size="x-small"
@@ -913,6 +1236,7 @@ watch(globalCalendarMonth, () => {
                         Recurrence:
                         {{ recurrenceLabel(item.recurrence ?? item.frequency) }}
                       </span>
+                      <span>Last PM: {{ formatDate(item.lastPm) }}</span>
                       <span>Last: {{ formatDate(item.lastCompleted) }}</span>
                       <span>First/Next Due: {{ formatDate(item.nextDue) }}</span>
                     </div>
@@ -959,8 +1283,8 @@ watch(globalCalendarMonth, () => {
                   v-if="!calendarEventsForMonth(location.id).length"
                   class="empty"
                 >
-                  No PM dates scheduled for this month. Add PMs with recurrence to
-                  populate the calendar.
+                  No PM or calibration dates scheduled for this month. Add PMs and
+                  calibration frequency to populate the calendar.
                 </div>
 
                 <div v-else class="calendar-list">
@@ -984,7 +1308,8 @@ watch(globalCalendarMonth, () => {
                       >
                         <div class="calendar-event-title">{{ event.title }}</div>
                         <div class="calendar-event-meta">
-                          {{ event.assetLabel }} · {{ event.recurrenceLabel }}
+                          {{ event.eventTypeLabel }} · {{ event.assetLabel }} ·
+                          {{ event.recurrenceLabel }}
                         </div>
                       </div>
                     </div>
@@ -992,43 +1317,59 @@ watch(globalCalendarMonth, () => {
                 </div>
               </v-window-item>
 
-              <v-window-item value="notes">
-                <div v-if="!notesFor(location.id).length" class="empty">
-                  No notes yet. Add a quick log entry.
-                </div>
-                <div v-else class="notes-list">
-                  <v-card
-                    v-for="note in notesFor(location.id)"
-                    :key="note.id"
-                    class="note-card"
-                    elevation="1"
-                  >
-                    <div class="note-body">{{ note.content }}</div>
-                    <div class="note-footer">
-                      <span class="note-date">
-                        {{ formatDate(note.createdAt) }}
-                      </span>
-                      <v-btn
-                        icon="mdi-delete"
-                        size="x-small"
-                        variant="text"
-                        @click="removeNote(location.id, note.id)"
-                      />
-                    </div>
-                  </v-card>
-                </div>
-              </v-window-item>
             </v-window>
+          </v-card>
+          <v-card class="lane-card notes-lane-card" elevation="8">
+            <div class="notes-card-header">
+              <div>
+                <div class="notes-card-title">{{ location.name }} Notes</div>
+                <div class="lane-meta">{{ notesFor(location.id).length }} notes</div>
+              </div>
+              <v-btn
+                size="small"
+                color="secondary"
+                variant="outlined"
+                @click="openNoteDialog(location.id)"
+              >
+                Add Note
+              </v-btn>
+            </div>
+            <div v-if="!notesFor(location.id).length" class="empty">
+              No notes yet. Add a quick log entry.
+            </div>
+            <div v-else class="notes-list">
+              <v-card
+                v-for="note in notesFor(location.id)"
+                :key="note.id"
+                class="note-card"
+                elevation="1"
+              >
+                <div class="note-body">{{ note.content }}</div>
+                <div class="note-footer">
+                  <span class="note-date">
+                    {{ formatDate(note.createdAt) }}
+                  </span>
+                  <v-btn
+                    icon="mdi-delete"
+                    size="x-small"
+                    variant="text"
+                    @click="removeNote(location.id, note.id)"
+                  />
+                </div>
+              </v-card>
+            </div>
           </v-card>
         </div>
       </div>
 
-      <div v-else class="global-calendar-page">
+      <div v-else-if="viewMode === 'global-calendar'" class="global-calendar-page">
         <v-card class="global-calendar-card" elevation="8">
           <div class="global-calendar-header">
             <div>
               <div class="global-calendar-title">{{ globalCalendarMonthLabel }}</div>
-              <div class="lane-meta">All scheduled PM occurrences across locations</div>
+              <div class="lane-meta">
+                All scheduled PM and calibration occurrences across locations
+              </div>
             </div>
             <div class="global-calendar-controls">
               <div class="calendar-nav-arrows">
@@ -1108,7 +1449,7 @@ watch(globalCalendarMonth, () => {
                       {{ event.locationName }} · {{ event.assetLabel }}
                     </div>
                     <div class="global-calendar-item-meta">
-                      {{ event.recurrenceLabel }}
+                      {{ event.eventTypeLabel }} · {{ event.recurrenceLabel }}
                     </div>
                   </div>
                 </div>
@@ -1117,7 +1458,7 @@ watch(globalCalendarMonth, () => {
           </div>
 
           <div v-if="!globalCalendarTotal" class="empty global-calendar-empty">
-            No PM dates scheduled for this month.
+            No PM or calibration dates scheduled for this month.
           </div>
 
           <div class="report-block">
@@ -1183,39 +1524,158 @@ watch(globalCalendarMonth, () => {
           </div>
         </v-card>
       </div>
+
+      <div v-else class="contacts-page">
+        <v-card class="contacts-card" elevation="8">
+          <div class="contacts-header">
+            <div>
+              <div class="global-calendar-title">Business Contacts</div>
+              <div class="lane-meta">{{ contacts.length }} contacts in directory</div>
+            </div>
+            <v-btn color="primary" variant="flat" @click="openContactDialog">
+              Add Contact
+            </v-btn>
+          </div>
+
+          <div v-if="!contacts.length" class="empty">
+            No contacts yet. Add a business contact to build your directory.
+          </div>
+
+          <div v-else class="table-wrap">
+            <v-table density="compact" fixed-header height="520">
+              <thead>
+                <tr>
+                  <th v-for="header in contactTableFields" :key="header.key">
+                    {{ header.label }}
+                  </th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in contacts" :key="item.id">
+                  <td v-for="header in contactTableFields" :key="header.key">
+                    {{ formatValue(item[header.key as keyof Contact] as string | null) }}
+                  </td>
+                  <td>
+                    <v-btn
+                      icon="mdi-pencil"
+                      size="x-small"
+                      variant="text"
+                      @click="openEditContactDialog(item)"
+                    />
+                    <v-btn
+                      icon="mdi-delete"
+                      size="x-small"
+                      variant="text"
+                      @click="removeContact(item.id)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+        </v-card>
+      </div>
     </div>
+
+    <v-dialog v-model="contactDialog" max-width="860">
+      <v-card class="dialog-card">
+        <v-card-title>{{ contactDialogTitle }}</v-card-title>
+        <v-card-text>
+          <div class="dialog-grid">
+            <v-text-field
+              v-model="contactDraft.company"
+              label="Company"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.contactName"
+              label="Contact Name"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+
+            <v-text-field
+              v-model="contactDraft.department"
+              label="Department"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.email"
+              label="Email"
+              type="email"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.phone"
+              label="Office Phone"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.mobile"
+              label="Mobile"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.locationName"
+              label="Location/Site"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="contactDraft.address"
+              label="Address"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+          </div>
+          <v-textarea
+            v-model="contactDraft.notes"
+            label="Notes"
+            variant="outlined"
+            density="comfortable"
+            rows="3"
+            hide-details
+            class="contact-notes"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeContactDialog">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="contactSaving"
+            @click="submitContact"
+          >
+            {{ contactDialogSaveLabel }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="assetDialog" max-width="900">
       <v-card class="dialog-card">
-        <v-card-title>Add Asset</v-card-title>
+        <v-card-title>{{ assetDialogTitle }}</v-card-title>
         <v-card-text>
-          <div class="asset-dialog-top">
-            <div class="asset-dialog-toggles">
-              <v-checkbox
-                v-model="assetDraft.activeRetired"
-                label="Retired"
-                true-value="Retired"
-                false-value="Active"
-                density="comfortable"
-                hide-details
-                color="primary"
-              />
-              <v-checkbox
-                v-model="assetDraft.gmp"
-                label="GMP"
-                true-value="Yes"
-                false-value="No"
-                density="comfortable"
-                hide-details
-                color="primary"
-              />
-            </div>
-          </div>
           <div class="dialog-grid">
             <v-text-field
-              v-for="field in assetFields.filter(
-                (field) => field.key !== 'activeRetired' && field.key !== 'gmp'
-              )"
+              v-for="field in assetDialogFields"
               :key="field.key"
               v-model="assetDraft[field.key as keyof AssetInput]"
               :label="field.label"
@@ -1227,7 +1687,7 @@ watch(globalCalendarMonth, () => {
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="assetDialog = false">
+          <v-btn variant="text" @click="closeAssetDialog">
             Cancel
           </v-btn>
           <v-btn
@@ -1236,7 +1696,79 @@ watch(globalCalendarMonth, () => {
             :loading="assetSaving"
             @click="submitAsset"
           >
-            Save Asset
+            {{ assetDialogSaveLabel }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="calibrationDialog" max-width="640">
+      <v-card class="dialog-card">
+        <v-card-title>Add Calibration</v-card-title>
+        <v-card-text>
+          <div class="dialog-grid small">
+            <v-select
+              v-model="calibrationDraft.assetId"
+              label="Asset"
+              :items="calibrationAssetOptions"
+              item-title="title"
+              item-value="value"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              :disabled="!calibrationAssetOptions.length"
+            />
+            <v-text-field
+              v-model="calibrationDraft.calDue"
+              label="Cal Due"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="calibrationDraft.calFreq"
+              label="Cal Freq"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="calibrationDraft.calibrationRange"
+              label="Cal Range"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="calibrationDraft.lastCalibration"
+              label="Last Cal"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+          </div>
+          <div
+            v-if="!calibrationAssetOptions.length"
+            class="pm-dialog-hint"
+          >
+            Add at least one asset for this site before logging calibration details.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="calibrationDialog = false">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="calibrationSaving"
+            :disabled="!calibrationAssetOptions.length"
+            @click="submitCalibration"
+          >
+            Save Calibration
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1278,6 +1810,14 @@ watch(globalCalendarMonth, () => {
             <v-text-field
               v-model="preventativeDraft.nextDue"
               label="First Due Date"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="preventativeDraft.lastPm"
+              label="Last PM"
               type="date"
               variant="outlined"
               density="comfortable"
@@ -1374,7 +1914,7 @@ watch(globalCalendarMonth, () => {
 
     <v-dialog v-model="noteDialog" max-width="520">
       <v-card class="dialog-card">
-        <v-card-title>New Note</v-card-title>
+        <v-card-title>{{ noteDialogTitle }}</v-card-title>
         <v-card-text>
           <v-textarea
             v-model="noteDraft.content"

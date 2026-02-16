@@ -10,6 +10,7 @@ import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
+import { Contact } from './models/Contact'
 
 const app = express()
 app.use(cors())
@@ -57,6 +58,10 @@ const preventativeSchema = z.object({
   assetId: z.number().int().positive(),
   recurrence: recurrenceSchema,
   title: z.string().optional().nullable(),
+  pmFreq: z.string().optional().nullable(),
+  lastPm: z.string().optional().nullable(),
+  pm: z.string().optional().nullable(),
+  revalidationCertification: z.string().optional().nullable(),
   lastCompleted: z.string().optional().nullable(),
   nextDue: z.string().min(1),
   notes: z.string().optional().nullable(),
@@ -81,6 +86,18 @@ const pmComplianceReportQuerySchema = z.object({
 
 const noteSchema = z.object({
   content: z.string().min(1),
+})
+
+const contactSchema = z.object({
+  company: z.string().optional().nullable(),
+  contactName: z.string().optional().nullable(),
+  department: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  mobile: z.string().optional().nullable(),
+  locationName: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
 })
 
 type RecurrenceValue = (typeof recurrenceValues)[number]
@@ -246,6 +263,29 @@ app.delete('/api/assets/:id', async (req, res) => {
   res.json({ deleted: deleted > 0 })
 })
 
+app.patch('/api/assets/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid asset id' })
+    return
+  }
+
+  const parsed = assetSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const asset = await Asset.findByPk(id)
+  if (!asset) {
+    res.status(404).json({ error: 'Asset not found' })
+    return
+  }
+
+  await asset.update(parsed.data as any)
+  res.json(asset)
+})
+
 app.post('/api/locations/:locationId/workorders', async (req, res) => {
   const locationId = Number(req.params.locationId)
   if (Number.isNaN(locationId)) {
@@ -332,6 +372,10 @@ app.post('/api/locations/:locationId/preventative-maintenances', async (req, res
     assetId: parsed.data.assetId,
     recurrence: parsed.data.recurrence,
     frequency: parsed.data.recurrence,
+    pmFreq: parsed.data.pmFreq,
+    lastPm: parsed.data.lastPm,
+    pm: parsed.data.pm,
+    revalidationCertification: parsed.data.revalidationCertification,
     scheduleAnchor: parsed.data.nextDue,
     title: parsed.data.title,
     lastCompleted: parsed.data.lastCompleted,
@@ -642,6 +686,58 @@ app.delete('/api/notes/:id', async (req, res) => {
   }
 
   const deleted = await LocationNote.destroy({ where: { id } })
+  res.json({ deleted: deleted > 0 })
+})
+
+app.get('/api/contacts', async (_req, res) => {
+  const contacts = await Contact.findAll({
+    order: [['createdAt', 'DESC']],
+  })
+  res.json(contacts)
+})
+
+app.post('/api/contacts', async (req, res) => {
+  const parsed = contactSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const contact = await Contact.create(parsed.data as any)
+  res.status(201).json(contact)
+})
+
+app.patch('/api/contacts/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid contact id' })
+    return
+  }
+
+  const parsed = contactSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const contact = await Contact.findByPk(id)
+  if (!contact) {
+    res.status(404).json({ error: 'Contact not found' })
+    return
+  }
+
+  await contact.update(parsed.data as any)
+  res.json(contact)
+})
+
+app.delete('/api/contacts/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid contact id' })
+    return
+  }
+
+  const deleted = await Contact.destroy({ where: { id } })
   res.json({ deleted: deleted > 0 })
 })
 

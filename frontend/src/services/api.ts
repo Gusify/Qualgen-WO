@@ -1,4 +1,6 @@
 import type {
+  Contact,
+  ContactInput,
   Location,
   Asset,
   AssetInput,
@@ -33,6 +35,26 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getContacts() {
+    return request<Contact[]>('/api/contacts')
+  },
+  createContact(payload: ContactInput) {
+    return request<Contact>('/api/contacts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  updateContact(id: number, payload: Partial<ContactInput>) {
+    return request<Contact>(`/api/contacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteContact(id: number) {
+    return request<{ deleted: boolean }>(`/api/contacts/${id}`, {
+      method: 'DELETE',
+    })
+  },
   getLocations() {
     return request<Location[]>('/api/locations')
   },
@@ -42,6 +64,12 @@ export const api = {
   createAsset(locationId: number, payload: AssetInput) {
     return request<Asset>(`/api/locations/${locationId}/assets`, {
       method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  updateAsset(id: number, payload: Partial<AssetInput>) {
+    return request<Asset>(`/api/assets/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     })
   },
