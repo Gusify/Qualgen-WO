@@ -42,7 +42,9 @@ export type AssetInput = WorkOrderInput
 export interface PreventativeMaintenance {
   id: number
   locationId: number
+  assetId?: number | null
   title?: string | null
+  recurrence?: string | null
   frequency?: string | null
   lastCompleted?: string | null
   nextDue?: string | null

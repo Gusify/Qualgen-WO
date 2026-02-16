@@ -38,11 +38,25 @@ const workOrderSchema = z.object({
 
 const assetSchema = workOrderSchema
 
+const recurrenceValues = [
+  'weekly',
+  'bi-weekly',
+  'monthly',
+  'bi-monthly',
+  'quarterly',
+  'every-6-months',
+  'yearly',
+  'bi-yearly',
+] as const
+
+const recurrenceSchema = z.enum(recurrenceValues)
+
 const preventativeSchema = z.object({
+  assetId: z.number().int().positive(),
+  recurrence: recurrenceSchema,
   title: z.string().optional().nullable(),
-  frequency: z.string().optional().nullable(),
   lastCompleted: z.string().optional().nullable(),
-  nextDue: z.string().optional().nullable(),
+  nextDue: z.string().min(1),
   notes: z.string().optional().nullable(),
 })
 
@@ -201,9 +215,26 @@ app.post('/api/locations/:locationId/preventative-maintenances', async (req, res
     return
   }
 
+  const asset = await Asset.findOne({
+    where: {
+      id: parsed.data.assetId,
+      locationId,
+    },
+  })
+  if (!asset) {
+    res.status(400).json({ error: 'Asset not found for this location' })
+    return
+  }
+
   const item = await PreventativeMaintenance.create({
     locationId,
-    ...parsed.data,
+    assetId: parsed.data.assetId,
+    recurrence: parsed.data.recurrence,
+    frequency: parsed.data.recurrence,
+    title: parsed.data.title,
+    lastCompleted: parsed.data.lastCompleted,
+    nextDue: parsed.data.nextDue,
+    notes: parsed.data.notes,
   } as any)
   res.status(201).json(item)
 })

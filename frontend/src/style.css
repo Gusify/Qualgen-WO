@@ -200,6 +200,70 @@ h1 {
   margin-top: 4px;
 }
 
+.pm-dialog-hint {
+  margin-top: 10px;
+  color: var(--ink-muted);
+  font-size: 0.84rem;
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.calendar-month-input {
+  max-width: 220px;
+}
+
+.calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.calendar-day-card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(31, 27, 22, 0.1);
+}
+
+.calendar-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.calendar-day-date {
+  font-weight: 600;
+}
+
+.calendar-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-event-row {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--paper-2);
+}
+
+.calendar-event-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.calendar-event-meta {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
 .notes-list {
   display: flex;
   flex-direction: column;
@@ -260,6 +324,16 @@ h1 {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+  }
+
+  .calendar-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .calendar-month-input {
+    max-width: 100%;
+    width: 100%;
   }
 
   .dialog-grid {

@@ -36,6 +36,6 @@ async function seedLocations() {
 }
 
 export async function initDb() {
-  await sequelize.sync()
+  await sequelize.sync({ alter: true })
   await seedLocations()
 }
