@@ -106,11 +106,11 @@ const emptyAssetDraft = (): AssetInput => ({
   manufacturerModel: '',
   equipmentDescription: '',
   location: '',
-  activeRetired: '',
+  activeRetired: 'Active',
   owner: '',
   calDue: '',
   serialNumber: '',
-  gmp: '',
+  gmp: 'No',
   pmFreq: '',
   lastPm: '',
   pm: '',
@@ -978,9 +978,33 @@ onMounted(() => {
       <v-card class="dialog-card">
         <v-card-title>Add Asset</v-card-title>
         <v-card-text>
+          <div class="asset-dialog-top">
+            <div class="asset-dialog-toggles">
+              <v-checkbox
+                v-model="assetDraft.activeRetired"
+                label="Retired"
+                true-value="Retired"
+                false-value="Active"
+                density="comfortable"
+                hide-details
+                color="primary"
+              />
+              <v-checkbox
+                v-model="assetDraft.gmp"
+                label="GMP"
+                true-value="Yes"
+                false-value="No"
+                density="comfortable"
+                hide-details
+                color="primary"
+              />
+            </div>
+          </div>
           <div class="dialog-grid">
             <v-text-field
-              v-for="field in assetFields"
+              v-for="field in assetFields.filter(
+                (field) => field.key !== 'activeRetired' && field.key !== 'gmp'
+              )"
               :key="field.key"
               v-model="assetDraft[field.key as keyof AssetInput]"
               :label="field.label"
