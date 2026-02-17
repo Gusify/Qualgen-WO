@@ -143,3 +143,22 @@ export interface PmComplianceReportResponse {
   summary: PmComplianceReportSummary
   rows: PmComplianceReportRow[]
 }
+
+export interface MsGraphSyncResponse {
+  range: {
+    start: string
+    end: string
+    locationId: number | null
+  }
+  dryRun: boolean
+  sourceEventCount: number
+  managedEventCount: number
+  deletedCount: number
+  createdCount: number
+}
+
+export interface MsGraphStatusResponse {
+  configured: boolean
+  userId: string | null
+  calendarId: string | null
+}

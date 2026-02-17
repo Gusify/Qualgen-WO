@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from './services/api'
+import wideLogo from './assets/wide-logo.svg'
 import type {
   Contact,
   ContactInput,
@@ -102,6 +103,15 @@ const defaultCalendarMonth = (() => {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   return `${now.getFullYear()}-${month}`
 })()
+
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001').replace(
+  /\/$/,
+  ''
+)
+
+const globalCalendarIcsUrl = `${apiBaseUrl}/api/calendar.ics`
+const locationCalendarIcsUrl = (locationId: number) =>
+  `${apiBaseUrl}/api/locations/${locationId}/calendar.ics`
 
 const globalCalendarMonth = ref(defaultCalendarMonth)
 const weekdayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -235,6 +245,8 @@ const pmReportLoading = ref(false)
 const pmReportError = ref('')
 const pmReportRows = ref<PmComplianceReportRow[]>([])
 const pmReportSummary = reactive<PmComplianceReportSummary>(emptyReportSummary())
+const msGraphConfigured = ref(false)
+const msGraphSyncing = ref(false)
 
 const snackbar = reactive({
   show: false,
@@ -717,12 +729,18 @@ const refreshAll = async () => {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [locationData, contactData] = await Promise.all([
+    const [locationData, contactData, msGraphStatus] = await Promise.all([
       api.getLocations(),
       api.getContacts(),
+      api.getMsGraphStatus().catch(() => ({
+        configured: false,
+        userId: null,
+        calendarId: null,
+      })),
     ])
     locations.value = locationData
     contacts.value = contactData
+    msGraphConfigured.value = msGraphStatus.configured
     for (const location of locations.value) {
       tabByLocation[location.id] = tabByLocation[location.id] || 'assets'
       calendarMonthByLocation[location.id] =
@@ -736,6 +754,39 @@ const refreshAll = async () => {
     setSnackbar(message, 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const syncOutlookCalendar = async (options?: {
+  locationId?: number
+}) => {
+  if (!msGraphConfigured.value) {
+    setSnackbar(
+      'Microsoft Graph is not configured on backend. Set MS_GRAPH_TENANT_ID, MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET, and MS_GRAPH_USER_ID.',
+      'error'
+    )
+    return
+  }
+
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const end = addMonths(start, 36)
+
+  msGraphSyncing.value = true
+  try {
+    const result = await api.syncMsGraphCalendar({
+      start: toIsoDate(start),
+      end: toIsoDate(end),
+      locationId: options?.locationId,
+    })
+    setSnackbar(
+      `Outlook sync complete: ${result.createdCount} created, ${result.deletedCount} replaced`
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Outlook sync failed'
+    setSnackbar(message, 'error')
+  } finally {
+    msGraphSyncing.value = false
   }
 }
 
@@ -1079,12 +1130,14 @@ watch(globalCalendarMonth, () => {
   <v-app>
     <div class="app-bg">
       <header class="top-bar">
-        <div>
-          <div class="eyebrow">Qualgen</div>
-          <h1>{{ pageTitle }}</h1>
-          <p class="subtitle">
-            {{ pageSubtitle }}
-          </p>
+        <div class="brand-block">
+          <img :src="wideLogo" alt="Qualgen logo" class="brand-banner" />
+          <div>
+            <h1>{{ pageTitle }}</h1>
+            <p class="subtitle">
+              {{ pageSubtitle }}
+            </p>
+          </div>
         </div>
         <div class="top-actions">
           <v-btn
@@ -1274,9 +1327,30 @@ watch(globalCalendarMonth, () => {
                     hide-details
                     class="calendar-month-input"
                   />
-                  <v-chip color="primary" variant="tonal" size="small">
-                    {{ calendarCountForMonth(location.id) }} scheduled
-                  </v-chip>
+                  <div class="calendar-toolbar-actions">
+                    <v-chip color="primary" variant="tonal" size="small">
+                      {{ calendarCountForMonth(location.id) }} scheduled
+                    </v-chip>
+                    <v-btn
+                      size="small"
+                      variant="tonal"
+                      prepend-icon="mdi-calendar-export"
+                      :href="locationCalendarIcsUrl(location.id)"
+                      target="_blank"
+                    >
+                      ICS Feed
+                    </v-btn>
+                    <v-btn
+                      size="small"
+                      variant="tonal"
+                      prepend-icon="mdi-microsoft-outlook"
+                      :loading="msGraphSyncing"
+                      :disabled="!msGraphConfigured"
+                      @click="syncOutlookCalendar({ locationId: location.id })"
+                    >
+                      Sync Outlook
+                    </v-btn>
+                  </div>
                 </div>
 
                 <div
@@ -1403,9 +1477,30 @@ watch(globalCalendarMonth, () => {
                 hide-details
                 class="calendar-month-input"
               />
-              <v-chip color="primary" variant="tonal" size="small">
-                {{ globalCalendarTotal }} scheduled
-              </v-chip>
+              <div class="calendar-toolbar-actions">
+                <v-chip color="primary" variant="tonal" size="small">
+                  {{ globalCalendarTotal }} scheduled
+                </v-chip>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  prepend-icon="mdi-calendar-export"
+                  :href="globalCalendarIcsUrl"
+                  target="_blank"
+                >
+                  ICS Feed
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  prepend-icon="mdi-microsoft-outlook"
+                  :loading="msGraphSyncing"
+                  :disabled="!msGraphConfigured"
+                  @click="syncOutlookCalendar()"
+                >
+                  Sync Outlook
+                </v-btn>
+              </div>
             </div>
           </div>
 
