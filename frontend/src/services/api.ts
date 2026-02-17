@@ -11,6 +11,8 @@ import type {
   PmCompletionHistory,
   PmCompletionHistoryInput,
   PmComplianceReportResponse,
+  MsGraphSyncResponse,
+  MsGraphStatusResponse,
   LocationNote,
   LocationNoteInput,
 } from '../types'
@@ -35,6 +37,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getMsGraphStatus() {
+    return request<MsGraphStatusResponse>('/api/integrations/ms-graph/status')
+  },
+  syncMsGraphCalendar(payload?: {
+    start?: string
+    end?: string
+    locationId?: number
+    dryRun?: boolean
+  }) {
+    return request<MsGraphSyncResponse>('/api/integrations/ms-graph/sync', {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    })
+  },
   getContacts() {
     return request<Contact[]>('/api/contacts')
   },

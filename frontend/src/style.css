@@ -47,12 +47,17 @@ body {
   margin-bottom: 28px;
 }
 
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.3em;
-  font-size: 0.72rem;
-  color: var(--ink-muted);
-  font-weight: 600;
+.brand-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.brand-banner {
+  width: clamp(190px, 22vw, 300px);
+  height: auto;
+  object-fit: contain;
 }
 
 h1 {
@@ -237,6 +242,13 @@ h1 {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.calendar-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .calendar-month-input {
@@ -511,6 +523,10 @@ h1 {
     align-items: flex-start;
   }
 
+  .brand-banner {
+    width: clamp(170px, 55vw, 260px);
+  }
+
   .lane-grid {
     grid-template-columns: 1fr;
   }
@@ -529,6 +545,11 @@ h1 {
   .calendar-toolbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .calendar-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .calendar-month-input {
