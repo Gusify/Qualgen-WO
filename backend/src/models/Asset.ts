@@ -9,6 +9,7 @@ import {
 } from 'sequelize-typescript'
 import { Location } from './Location'
 import { PmCompletionHistory } from './PmCompletionHistory'
+import { CalibrationCompletionHistory } from './CalibrationCompletionHistory'
 
 @Table({ tableName: 'assets' })
 export class Asset extends Model<Asset> {
@@ -28,6 +29,9 @@ export class Asset extends Model<Asset> {
 
   @HasMany(() => PmCompletionHistory)
   declare pmCompletionHistory?: PmCompletionHistory[]
+
+  @HasMany(() => CalibrationCompletionHistory)
+  declare calibrationCompletionHistory?: CalibrationCompletionHistory[]
 
   @Column(DataType.STRING)
   declare aid?: string | null

@@ -38,6 +38,7 @@ export interface WorkOrder {
   revalidationCertification?: string | null
   calFreq?: string | null
   lastCalibration?: string | null
+  calibrationDueCompletedAt?: string | null
   calibrationRange?: string | null
   sop?: string | null
   notes?: string | null
@@ -111,8 +112,28 @@ export interface PmCompletionHistoryInput {
   notes?: string | null
 }
 
+export interface CalibrationCompletionHistory {
+  id: number
+  assetId: number
+  locationId: number
+  dueDate: string
+  completedAt?: string | null
+  notes?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface CalibrationCompletionHistoryInput {
+  dueDate: string
+  completedAt?: string | null
+  notes?: string | null
+}
+
 export interface PmComplianceReportRow {
-  preventativeMaintenanceId: number
+  reportKey: string
+  sourceType: 'pm' | 'calibration'
+  sourceId: number
+  preventativeMaintenanceId?: number | null
   title?: string | null
   recurrence?: string | null
   dueDate: string

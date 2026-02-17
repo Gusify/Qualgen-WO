@@ -10,6 +10,7 @@ import { Asset } from './Asset'
 import { PreventativeMaintenance } from './PreventativeMaintenance'
 import { LocationNote } from './LocationNote'
 import { PmCompletionHistory } from './PmCompletionHistory'
+import { CalibrationCompletionHistory } from './CalibrationCompletionHistory'
 
 @Table({ tableName: 'locations' })
 export class Location extends Model<Location> {
@@ -41,4 +42,7 @@ export class Location extends Model<Location> {
 
   @HasMany(() => PmCompletionHistory)
   declare pmCompletionHistory?: PmCompletionHistory[]
+
+  @HasMany(() => CalibrationCompletionHistory)
+  declare calibrationCompletionHistory?: CalibrationCompletionHistory[]
 }

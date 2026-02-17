@@ -198,6 +198,26 @@ h1 {
   gap: 12px;
 }
 
+.pm-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+
+.pm-section-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.calibration-section-head {
+  margin-top: 18px;
+}
+
 .pm-card {
   padding: 12px 14px;
   border-radius: 12px;
@@ -509,6 +529,20 @@ h1 {
 
 .contact-notes {
   margin-top: 12px;
+}
+
+.calibration-history-notes {
+  margin-top: 12px;
+}
+
+.calibration-history-head {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.calibration-history-table {
+  margin-top: 6px;
 }
 
 @media (max-width: 1400px) {
