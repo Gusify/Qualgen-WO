@@ -12,6 +12,7 @@ import type {
   PreventativeMaintenanceInput,
   PmComplianceReportRow,
   PmComplianceReportSummary,
+  CalibrationCompletionHistory,
   LocationNote,
   LocationNoteInput,
 } from './types'
@@ -233,6 +234,18 @@ const completionDraft = reactive({
   notes: '',
 })
 
+const calibrationHistoryDialog = ref(false)
+const calibrationHistoryLoading = ref(false)
+const calibrationHistorySaving = ref(false)
+const activeCalibrationHistoryLocationId = ref<number | null>(null)
+const activeCalibrationHistoryAssetId = ref<number | null>(null)
+const calibrationHistoryRows = ref<CalibrationCompletionHistory[]>([])
+const calibrationCompletionDraft = reactive({
+  dueDate: '',
+  completedAt: '',
+  notes: '',
+})
+
 const emptyReportSummary = (): PmComplianceReportSummary => ({
   total: 0,
   completedOnTime: 0,
@@ -364,6 +377,10 @@ const reportStatusLabel = (status: PmComplianceReportRow['status']) => {
   return 'Scheduled'
 }
 
+const reportSourceLabel = (sourceType: PmComplianceReportRow['sourceType']) => {
+  return sourceType === 'calibration' ? 'Calibration' : 'PM'
+}
+
 const reportStatusColor = (status: PmComplianceReportRow['status']) => {
   if (status === 'completed-on-time') return 'success'
   if (status === 'completed-late') return 'warning'
@@ -385,6 +402,11 @@ const nextRecurringDate = (date: Date, recurrence: RecurrenceValue) => {
 const assetsFor = (locationId: number) => assets[locationId] ?? []
 const preventativesFor = (locationId: number) => preventatives[locationId] ?? []
 const notesFor = (locationId: number) => notes[locationId] ?? []
+const calibrationAssetsFor = (locationId: number) =>
+  assetsFor(locationId).filter((asset) => {
+    const dueDate = asset.calDue?.trim() ?? ''
+    return dueDate.length > 0 && !asset.calibrationDueCompletedAt
+  })
 
 const assetDisplayLabel = (asset: Asset) => {
   const parts = [asset.aid, asset.manufacturerModel, asset.equipmentDescription]
@@ -399,6 +421,24 @@ const assetNameFor = (locationId: number, assetId?: number | null) => {
   const matched = assetsFor(locationId).find((asset) => asset.id === assetId)
   return matched ? assetDisplayLabel(matched) : `Asset #${assetId}`
 }
+
+const findLocationAsset = (locationId: number, assetId?: number | null) => {
+  if (!assetId) return null
+  return assetsFor(locationId).find((asset) => asset.id === assetId) ?? null
+}
+
+const calibrationHistoryAsset = computed(() => {
+  const locationId = activeCalibrationHistoryLocationId.value
+  const assetId = activeCalibrationHistoryAssetId.value
+  if (!locationId || !assetId) return null
+  return findLocationAsset(locationId, assetId)
+})
+
+const calibrationHistoryDialogTitle = computed(() => {
+  const asset = calibrationHistoryAsset.value
+  if (!asset) return 'Calibration Completion History'
+  return `Calibration Completion - ${assetDisplayLabel(asset)}`
+})
 
 const preventativeTitleFor = (
   locationId: number,
@@ -503,7 +543,7 @@ const loadPmComplianceReport = async () => {
     pmReportRows.value = []
     Object.assign(pmReportSummary, emptyReportSummary())
     pmReportError.value =
-      error instanceof Error ? error.message : 'Failed to load PM report'
+      error instanceof Error ? error.message : 'Failed to load maintenance report'
   } finally {
     pmReportLoading.value = false
   }
@@ -857,9 +897,48 @@ const openCalibrationDialog = (locationId: number) => {
   calibrationDialog.value = true
 }
 
+const openCalibrationDialogForAsset = (locationId: number, asset: Asset) => {
+  openCalibrationDialog(locationId)
+  calibrationDraft.assetId = asset.id
+}
+
+const loadCalibrationHistory = async (assetId: number) => {
+  calibrationHistoryLoading.value = true
+  try {
+    calibrationHistoryRows.value = await api.getCalibrationCompletionHistory(assetId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load calibration history'
+    setSnackbar(message, 'error')
+    calibrationHistoryRows.value = []
+  } finally {
+    calibrationHistoryLoading.value = false
+  }
+}
+
+const openCalibrationHistoryDialog = async (locationId: number, asset: Asset) => {
+  activeCalibrationHistoryLocationId.value = locationId
+  activeCalibrationHistoryAssetId.value = asset.id
+  calibrationCompletionDraft.dueDate = asset.calDue?.trim() || todayIso()
+  calibrationCompletionDraft.completedAt = todayIso()
+  calibrationCompletionDraft.notes = ''
+  calibrationHistoryDialog.value = true
+  await loadCalibrationHistory(asset.id)
+}
+
+const closeCalibrationHistoryDialog = () => {
+  calibrationHistoryDialog.value = false
+  activeCalibrationHistoryLocationId.value = null
+  activeCalibrationHistoryAssetId.value = null
+}
+
 const openPreventativeDialog = (locationId: number) => {
   activePreventativeLocationId.value = locationId
   Object.assign(preventativeDraft, emptyPreventativeDraft())
+  const options = assetsFor(locationId)
+  const firstAsset = options[0]
+  if (firstAsset) {
+    preventativeDraft.assetId = firstAsset.id
+  }
   preventativeDialog.value = true
 }
 
@@ -926,7 +1005,6 @@ const submitCalibration = async () => {
       calDue: calibrationDraft.calDue,
       calFreq: calibrationDraft.calFreq,
       calibrationRange: calibrationDraft.calibrationRange,
-      lastCalibration: calibrationDraft.lastCalibration,
     })
     const updated = await api.updateAsset(assetId, payload)
     assets[locationId] = assetsFor(locationId).map((item) =>
@@ -939,6 +1017,43 @@ const submitCalibration = async () => {
     setSnackbar(message, 'error')
   } finally {
     calibrationSaving.value = false
+  }
+}
+
+const submitCalibrationCompletion = async () => {
+  const locationId = activeCalibrationHistoryLocationId.value
+  const assetId = activeCalibrationHistoryAssetId.value
+  if (!locationId || !assetId) return
+
+  const dueDate = calibrationCompletionDraft.dueDate.trim()
+  const completedAt = calibrationCompletionDraft.completedAt.trim()
+  if (!dueDate || !completedAt) {
+    setSnackbar('Due date and completed date are required', 'error')
+    return
+  }
+
+  calibrationHistorySaving.value = true
+  try {
+    const result = await api.createCalibrationCompletionHistory(assetId, {
+      dueDate,
+      completedAt,
+      notes: calibrationCompletionDraft.notes.trim() || null,
+    })
+
+    assets[locationId] = assetsFor(locationId).map((item) =>
+      item.id === result.asset.id ? result.asset : item
+    )
+    calibrationCompletionDraft.dueDate = result.asset.calDue?.trim() || dueDate
+    calibrationCompletionDraft.completedAt = todayIso()
+    calibrationCompletionDraft.notes = ''
+    await loadCalibrationHistory(assetId)
+    setSnackbar('Calibration completion logged')
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to log calibration completion'
+    setSnackbar(message, 'error')
+  } finally {
+    calibrationHistorySaving.value = false
   }
 }
 
@@ -1121,6 +1236,31 @@ onMounted(() => {
   refreshAll()
 })
 
+watch(
+  [() => activeCalibrationLocationId.value, () => calibrationDraft.assetId],
+  ([locationId, assetId]) => {
+    if (!locationId || !assetId) return
+    const asset = findLocationAsset(locationId, assetId)
+    if (!asset) return
+
+    calibrationDraft.calDue = asset.calDue ?? ''
+    calibrationDraft.calFreq = asset.calFreq ?? ''
+    calibrationDraft.calibrationRange = asset.calibrationRange ?? ''
+    calibrationDraft.lastCalibration = asset.lastCalibration ?? ''
+  }
+)
+
+watch(
+  [() => activePreventativeLocationId.value, () => preventativeDraft.assetId],
+  ([locationId, assetId]) => {
+    if (!locationId || !assetId) return
+    const asset = findLocationAsset(locationId, assetId)
+    if (!asset) return
+
+    preventativeDraft.lastPm = asset.lastPm ?? ''
+  }
+)
+
 watch(globalCalendarMonth, () => {
   loadPmComplianceReport()
 })
@@ -1196,22 +1336,6 @@ watch(globalCalendarMonth, () => {
                 >
                   Add Asset
                 </v-btn>
-                <v-btn
-                  size="small"
-                  color="secondary"
-                  variant="outlined"
-                  @click="openCalibrationDialog(location.id)"
-                >
-                  Add Calibration
-                </v-btn>
-                <v-btn
-                  size="small"
-                  color="secondary"
-                  variant="tonal"
-                  @click="openPreventativeDialog(location.id)"
-                >
-                  Add PM
-                </v-btn>
               </div>
             </div>
 
@@ -1221,7 +1345,7 @@ watch(globalCalendarMonth, () => {
               density="compact"
             >
               <v-tab value="assets">Assets</v-tab>
-              <v-tab value="pm">Preventative Maintenance</v-tab>
+              <v-tab value="pm">PMs and Calibrations</v-tab>
               <v-tab value="calendar">Calendar</v-tab>
             </v-tabs>
 
@@ -1270,6 +1394,17 @@ watch(globalCalendarMonth, () => {
               </v-window-item>
 
               <v-window-item value="pm">
+                <div class="pm-section-head">
+                  <div class="pm-section-title">Preventative Maintenance</div>
+                  <v-btn
+                    size="x-small"
+                    color="secondary"
+                    variant="tonal"
+                    @click="openPreventativeDialog(location.id)"
+                  >
+                    Add PM
+                  </v-btn>
+                </div>
                 <div v-if="!preventativesFor(location.id).length" class="empty">
                   No PM items yet. Log your first schedule.
                 </div>
@@ -1311,6 +1446,56 @@ watch(globalCalendarMonth, () => {
                         variant="text"
                         @click="removePreventative(location.id, item.id)"
                       />
+                    </div>
+                  </v-card>
+                </div>
+
+                <div class="pm-section-head calibration-section-head">
+                  <div class="pm-section-title">Calibrations</div>
+                  <v-btn
+                    size="x-small"
+                    color="secondary"
+                    variant="outlined"
+                    @click="openCalibrationDialog(location.id)"
+                  >
+                    Add Calibration
+                  </v-btn>
+                </div>
+                <div v-if="!calibrationAssetsFor(location.id).length" class="empty">
+                  No open calibration due items. Completed calibrations are hidden.
+                </div>
+                <div v-else class="pm-list">
+                  <v-card
+                    v-for="asset in calibrationAssetsFor(location.id)"
+                    :key="`cal-${asset.id}`"
+                    class="pm-card"
+                    elevation="2"
+                  >
+                    <div class="pm-title">
+                      {{ assetDisplayLabel(asset) }}
+                    </div>
+                    <div class="pm-meta">
+                      <span>Cal Due: {{ formatDate(asset.calDue) || '—' }}</span>
+                      <span>Frequency: {{ formatValue(asset.calFreq) }}</span>
+                      <span>Last Cal: {{ formatDate(asset.lastCalibration) || '—' }}</span>
+                      <span>Range: {{ formatValue(asset.calibrationRange) }}</span>
+                    </div>
+                    <div class="pm-actions">
+                      <v-btn
+                        size="x-small"
+                        variant="tonal"
+                        color="primary"
+                        @click="openCalibrationHistoryDialog(location.id, asset)"
+                      >
+                        Log Completion
+                      </v-btn>
+                      <v-btn
+                        size="x-small"
+                        variant="text"
+                        @click="openCalibrationDialogForAsset(location.id, asset)"
+                      >
+                        Edit Calibration
+                      </v-btn>
                     </div>
                   </v-card>
                 </div>
@@ -1558,7 +1743,7 @@ watch(globalCalendarMonth, () => {
 
           <div class="report-block">
             <div class="report-head">
-              <div class="global-calendar-title">PM Compliance Report</div>
+              <div class="global-calendar-title">Maintenance Compliance Report</div>
               <div class="report-summary">
                 <v-chip size="small" color="success" variant="tonal">
                   On Time: {{ pmReportSummary.completedOnTime }}
@@ -1581,7 +1766,7 @@ watch(globalCalendarMonth, () => {
             </div>
 
             <div v-else-if="!pmReportRows.length" class="empty">
-              No PM report rows for this month.
+              No maintenance report rows for this month.
             </div>
 
             <div v-else class="table-wrap report-table">
@@ -1590,14 +1775,15 @@ watch(globalCalendarMonth, () => {
                   <tr>
                     <th>Due Date</th>
                     <th>Status</th>
+                    <th>Type</th>
                     <th>Location</th>
-                    <th>PM</th>
+                    <th>Item</th>
                     <th>Asset</th>
                     <th>Completed At</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in pmReportRows" :key="`${row.preventativeMaintenanceId}-${row.dueDate}`">
+                  <tr v-for="row in pmReportRows" :key="row.reportKey">
                     <td>{{ formatDate(row.dueDate) }}</td>
                     <td>
                       <v-chip
@@ -1608,6 +1794,7 @@ watch(globalCalendarMonth, () => {
                         {{ reportStatusLabel(row.status) }}
                       </v-chip>
                     </td>
+                    <td>{{ reportSourceLabel(row.sourceType) }}</td>
                     <td>{{ row.locationName }}</td>
                     <td>{{ formatValue(row.title) }}</td>
                     <td>{{ row.assetLabel }}</td>
@@ -1841,6 +2028,7 @@ watch(globalCalendarMonth, () => {
               type="date"
               variant="outlined"
               density="comfortable"
+              readonly
               hide-details
             />
           </div>
@@ -1864,6 +2052,91 @@ watch(globalCalendarMonth, () => {
             @click="submitCalibration"
           >
             Save Calibration
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="calibrationHistoryDialog" max-width="900">
+      <v-card class="dialog-card">
+        <v-card-title>{{ calibrationHistoryDialogTitle }}</v-card-title>
+        <v-card-text>
+          <div class="dialog-grid">
+            <v-text-field
+              v-model="calibrationCompletionDraft.dueDate"
+              label="Due Date"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="calibrationCompletionDraft.completedAt"
+              label="Completed Date"
+              type="date"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              :model-value="formatDate(calibrationHistoryAsset?.lastCalibration) || '—'"
+              label="Latest Completed"
+              variant="outlined"
+              density="comfortable"
+              readonly
+              hide-details
+            />
+          </div>
+
+          <v-textarea
+            v-model="calibrationCompletionDraft.notes"
+            label="Completion Notes"
+            variant="outlined"
+            density="comfortable"
+            rows="2"
+            class="calibration-history-notes"
+            hide-details
+          />
+
+          <div class="calibration-history-head">History</div>
+
+          <div v-if="calibrationHistoryLoading" class="empty">
+            Loading calibration history...
+          </div>
+          <div v-else-if="!calibrationHistoryRows.length" class="empty">
+            No calibration completions logged yet.
+          </div>
+          <div v-else class="table-wrap calibration-history-table">
+            <v-table density="compact" fixed-header height="220">
+              <thead>
+                <tr>
+                  <th>Due Date</th>
+                  <th>Completed Date</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="entry in calibrationHistoryRows" :key="entry.id">
+                  <td>{{ formatDate(entry.dueDate) }}</td>
+                  <td>{{ formatDate(entry.completedAt) || '—' }}</td>
+                  <td>{{ formatValue(entry.notes) }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeCalibrationHistoryDialog">
+            Close
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="calibrationHistorySaving"
+            @click="submitCalibrationCompletion"
+          >
+            Log Completion
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -1916,6 +2189,7 @@ watch(globalCalendarMonth, () => {
               type="date"
               variant="outlined"
               density="comfortable"
+              readonly
               hide-details
             />
             <v-text-field

@@ -10,6 +10,8 @@ import type {
   PreventativeMaintenanceInput,
   PmCompletionHistory,
   PmCompletionHistoryInput,
+  CalibrationCompletionHistory,
+  CalibrationCompletionHistoryInput,
   PmComplianceReportResponse,
   MsGraphSyncResponse,
   MsGraphStatusResponse,
@@ -141,6 +143,23 @@ export const api = {
       history: PmCompletionHistory
       preventativeMaintenance: PreventativeMaintenance
     }>(`/api/preventative-maintenances/${id}/completion-history`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  getCalibrationCompletionHistory(assetId: number) {
+    return request<CalibrationCompletionHistory[]>(
+      `/api/assets/${assetId}/calibration-history`
+    )
+  },
+  createCalibrationCompletionHistory(
+    assetId: number,
+    payload: CalibrationCompletionHistoryInput
+  ) {
+    return request<{
+      history: CalibrationCompletionHistory
+      asset: Asset
+    }>(`/api/assets/${assetId}/calibration-history`, {
       method: 'POST',
       body: JSON.stringify(payload),
     })

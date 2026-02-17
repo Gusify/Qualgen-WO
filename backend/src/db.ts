@@ -5,6 +5,7 @@ import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
+import { CalibrationCompletionHistory } from './models/CalibrationCompletionHistory'
 import { Contact } from './models/Contact'
 
 const dbHost = process.env.DB_HOST || 'localhost'
@@ -28,6 +29,7 @@ export const sequelize = new Sequelize({
     PreventativeMaintenance,
     LocationNote,
     PmCompletionHistory,
+    CalibrationCompletionHistory,
     Contact,
   ],
 })

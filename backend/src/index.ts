@@ -3,7 +3,7 @@ import './loadEnv'
 import express from 'express'
 import cors from 'cors'
 import { z } from 'zod'
-import { Op } from 'sequelize'
+import { Op, Transaction } from 'sequelize'
 import { initDb, sequelize } from './db'
 import { Location } from './models/Location'
 import { WorkOrder } from './models/WorkOrder'
@@ -11,6 +11,7 @@ import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
+import { CalibrationCompletionHistory } from './models/CalibrationCompletionHistory'
 import { Contact } from './models/Contact'
 
 const app = express()
@@ -78,6 +79,8 @@ const completionHistorySchema = z.object({
   completedAt: isoDateSchema.optional().nullable(),
   notes: z.string().optional().nullable(),
 })
+
+const calibrationCompletionHistorySchema = completionHistorySchema
 
 const pmComplianceReportQuerySchema = z.object({
   start: isoDateSchema.optional(),
@@ -163,6 +166,134 @@ const nextRecurringDate = (date: Date, recurrence: RecurrenceValue) => {
   if (recurrence === 'every-6-months') return addMonths(date, 6)
   if (recurrence === 'yearly') return addMonths(date, 12)
   return addMonths(date, 24)
+}
+
+const getLatestCompletedPmDateForPreventative = async (
+  preventativeMaintenanceId: number,
+  transaction?: Transaction
+) => {
+  const latest = await PmCompletionHistory.findOne({
+    where: {
+      preventativeMaintenanceId,
+      completedAt: { [Op.not]: null },
+    },
+    order: [['completedAt', 'DESC']],
+    transaction,
+  })
+  return latest?.completedAt ?? null
+}
+
+const getLatestCompletedPmDateForAsset = async (
+  assetId: number,
+  transaction?: Transaction
+) => {
+  const latest = await PmCompletionHistory.findOne({
+    where: {
+      assetId,
+      completedAt: { [Op.not]: null },
+    },
+    order: [['completedAt', 'DESC']],
+    transaction,
+  })
+  return latest?.completedAt ?? null
+}
+
+const getLatestCompletedCalibrationDateForAsset = async (
+  assetId: number,
+  transaction?: Transaction
+) => {
+  const latest = await CalibrationCompletionHistory.findOne({
+    where: {
+      assetId,
+      completedAt: { [Op.not]: null },
+    },
+    order: [['completedAt', 'DESC']],
+    transaction,
+  })
+  return latest?.completedAt ?? null
+}
+
+const getCalibrationCompletedDateForDueDate = async (
+  assetId: number,
+  dueDate?: string | null,
+  transaction?: Transaction
+) => {
+  const normalizedDueDate = dueDate?.trim()
+  if (!normalizedDueDate) return null
+
+  const completion = await CalibrationCompletionHistory.findOne({
+    where: {
+      assetId,
+      dueDate: normalizedDueDate,
+      completedAt: { [Op.not]: null },
+    },
+    order: [['completedAt', 'DESC']],
+    transaction,
+  })
+  return completion?.completedAt ?? null
+}
+
+const syncAssetLastCalibrationFromHistory = async (
+  assetId: number,
+  transaction?: Transaction
+) => {
+  const [asset, latestCompletedAt] = await Promise.all([
+    Asset.findByPk(assetId, { transaction }),
+    getLatestCompletedCalibrationDateForAsset(assetId, transaction),
+  ])
+  if (!asset) return null
+
+  const normalizedCurrent = asset.lastCalibration ?? null
+  const normalizedNext = latestCompletedAt ?? normalizedCurrent
+  if (normalizedCurrent !== normalizedNext) {
+    asset.lastCalibration = normalizedNext
+    await asset.save({ transaction })
+  }
+
+  return normalizedNext
+}
+
+const syncAssetLastPmFromHistory = async (
+  assetId: number,
+  transaction?: Transaction
+) => {
+  const [asset, latestCompletedAt] = await Promise.all([
+    Asset.findByPk(assetId, { transaction }),
+    getLatestCompletedPmDateForAsset(assetId, transaction),
+  ])
+  if (!asset) return null
+
+  const normalizedCurrent = asset.lastPm ?? null
+  const normalizedNext = latestCompletedAt ?? normalizedCurrent
+  if (normalizedCurrent !== normalizedNext) {
+    asset.lastPm = normalizedNext
+    await asset.save({ transaction })
+  }
+
+  return normalizedNext
+}
+
+const withDerivedAssetFields = async (asset: Asset) => {
+  const [latestPmCompletedAt, latestCalibrationCompletedAt, calibrationDueCompletedAt] =
+    await Promise.all([
+    getLatestCompletedPmDateForAsset(asset.id),
+    getLatestCompletedCalibrationDateForAsset(asset.id),
+    getCalibrationCompletedDateForDueDate(asset.id, asset.calDue),
+  ])
+  return {
+    ...asset.toJSON(),
+    lastPm: latestPmCompletedAt ?? asset.lastPm ?? null,
+    lastCalibration: latestCalibrationCompletedAt ?? asset.lastCalibration ?? null,
+    calibrationDueCompletedAt,
+  }
+}
+
+const withDerivedPreventativeFields = async (item: PreventativeMaintenance) => {
+  const latestCompletedAt = await getLatestCompletedPmDateForPreventative(item.id)
+  return {
+    ...item.toJSON(),
+    lastPm: latestCompletedAt ?? item.lastPm ?? null,
+  }
 }
 
 const buildDueDatesInRange = (
@@ -836,7 +967,8 @@ app.get('/api/assets', async (_req, res) => {
   const assets = await Asset.findAll({
     order: [['createdAt', 'DESC']],
   })
-  res.json(assets)
+  const enriched = await Promise.all(assets.map((asset) => withDerivedAssetFields(asset)))
+  res.json(enriched)
 })
 
 app.get('/api/locations/:locationId/assets', async (req, res) => {
@@ -850,7 +982,8 @@ app.get('/api/locations/:locationId/assets', async (req, res) => {
     where: { locationId },
     order: [['createdAt', 'DESC']],
   })
-  res.json(assets)
+  const enriched = await Promise.all(assets.map((asset) => withDerivedAssetFields(asset)))
+  res.json(enriched)
 })
 
 app.post('/api/locations/:locationId/assets', async (req, res) => {
@@ -876,7 +1009,7 @@ app.post('/api/locations/:locationId/assets', async (req, res) => {
     locationId,
     ...parsed.data,
   } as any)
-  res.status(201).json(asset)
+  res.status(201).json(await withDerivedAssetFields(asset))
 })
 
 app.delete('/api/assets/:id', async (req, res) => {
@@ -905,6 +1038,11 @@ app.delete('/api/assets/:id', async (req, res) => {
       }
 
       await PmCompletionHistory.destroy({
+        where: { assetId: id },
+        transaction,
+      })
+
+      await CalibrationCompletionHistory.destroy({
         where: { assetId: id },
         transaction,
       })
@@ -944,7 +1082,7 @@ app.patch('/api/assets/:id', async (req, res) => {
   }
 
   await asset.update(parsed.data as any)
-  res.json(asset)
+  res.json(await withDerivedAssetFields(asset))
 })
 
 app.post('/api/locations/:locationId/workorders', async (req, res) => {
@@ -995,7 +1133,10 @@ app.get('/api/locations/:locationId/preventative-maintenances', async (req, res)
     where: { locationId },
     order: [['createdAt', 'DESC']],
   })
-  res.json(items)
+  const enriched = await Promise.all(
+    items.map((item) => withDerivedPreventativeFields(item))
+  )
+  res.json(enriched)
 })
 
 app.post('/api/locations/:locationId/preventative-maintenances', async (req, res) => {
@@ -1034,7 +1175,7 @@ app.post('/api/locations/:locationId/preventative-maintenances', async (req, res
     recurrence: parsed.data.recurrence,
     frequency: parsed.data.recurrence,
     pmFreq: parsed.data.pmFreq,
-    lastPm: parsed.data.lastPm,
+    lastPm: (await getLatestCompletedPmDateForAsset(asset.id)) ?? asset.lastPm ?? null,
     pm: parsed.data.pm,
     revalidationCertification: parsed.data.revalidationCertification,
     scheduleAnchor: parsed.data.nextDue,
@@ -1043,7 +1184,7 @@ app.post('/api/locations/:locationId/preventative-maintenances', async (req, res
     nextDue: parsed.data.nextDue,
     notes: parsed.data.notes,
   } as any)
-  res.status(201).json(item)
+  res.status(201).json(await withDerivedPreventativeFields(item))
 })
 
 app.delete('/api/preventative-maintenances/:id', async (req, res) => {
@@ -1055,14 +1196,23 @@ app.delete('/api/preventative-maintenances/:id', async (req, res) => {
 
   try {
     const deleted = await sequelize.transaction(async (transaction) => {
+      const pm = await PreventativeMaintenance.findByPk(id, { transaction })
+      const linkedAssetId = pm?.assetId ?? null
+
       await PmCompletionHistory.destroy({
         where: { preventativeMaintenanceId: id },
         transaction,
       })
-      return PreventativeMaintenance.destroy({
+      const deletedCount = await PreventativeMaintenance.destroy({
         where: { id },
         transaction,
       })
+
+      if (linkedAssetId) {
+        await syncAssetLastPmFromHistory(linkedAssetId, transaction)
+      }
+
+      return deletedCount
     })
 
     res.json({ deleted: deleted > 0 })
@@ -1161,15 +1311,157 @@ app.post('/api/preventative-maintenances/:id/completion-history', async (req, re
   }
 
   pm.lastCompleted = completedAt
+  pm.lastPm = await getLatestCompletedPmDateForPreventative(id)
   if (!pm.scheduleAnchor && pm.nextDue) {
     pm.scheduleAnchor = pm.nextDue
   }
   await pm.save()
 
+  if (pm.assetId) {
+    await syncAssetLastPmFromHistory(pm.assetId)
+  }
+
   res.status(201).json({
     history,
-    preventativeMaintenance: pm,
+    preventativeMaintenance: await withDerivedPreventativeFields(pm),
   })
+})
+
+app.get('/api/assets/:id/calibration-history', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid asset id' })
+    return
+  }
+
+  const asset = await Asset.findByPk(id)
+  if (!asset) {
+    res.status(404).json({ error: 'Asset not found' })
+    return
+  }
+
+  const history = await CalibrationCompletionHistory.findAll({
+    where: { assetId: id },
+    order: [['dueDate', 'DESC']],
+  })
+  res.json(history)
+})
+
+app.post('/api/assets/:id/calibration-history', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid asset id' })
+    return
+  }
+
+  const parsed = calibrationCompletionHistorySchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const asset = await Asset.findByPk(id)
+  if (!asset) {
+    res.status(404).json({ error: 'Asset not found' })
+    return
+  }
+
+  const dueDate = parsed.data.dueDate
+  const dueDateObj = parseIsoDate(dueDate)
+  if (!dueDateObj) {
+    res.status(400).json({ error: 'Invalid due date' })
+    return
+  }
+
+  const completedAt = parsed.data.completedAt ?? todayIso()
+  const completedAtObj = parseIsoDate(completedAt)
+  if (!completedAtObj) {
+    res.status(400).json({ error: 'Invalid completed date' })
+    return
+  }
+
+  const existing = await CalibrationCompletionHistory.findOne({
+    where: {
+      assetId: id,
+      dueDate,
+    },
+  })
+
+  let history: CalibrationCompletionHistory
+  if (existing) {
+    history = await existing.update({
+      completedAt,
+      notes: parsed.data.notes ?? existing.notes ?? null,
+      locationId: asset.locationId,
+    } as any)
+  } else {
+    history = await CalibrationCompletionHistory.create({
+      assetId: id,
+      locationId: asset.locationId,
+      dueDate,
+      completedAt,
+      notes: parsed.data.notes ?? null,
+    } as any)
+  }
+
+  const recurrence = asFlexibleRecurrence(asset.calFreq)
+  if (recurrence) {
+    const nextDue = toIsoDate(nextRecurringDate(dueDateObj, recurrence))
+    const currentCalDueObj = asset.calDue ? parseIsoDate(asset.calDue) : null
+    if (!currentCalDueObj || currentCalDueObj <= dueDateObj) {
+      asset.calDue = nextDue
+    }
+  }
+
+  await asset.save()
+  await syncAssetLastCalibrationFromHistory(id)
+
+  const refreshedAsset = (await Asset.findByPk(id)) ?? asset
+
+  res.status(201).json({
+    history,
+    asset: await withDerivedAssetFields(refreshedAsset),
+  })
+})
+
+app.delete('/api/calibration-history/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid calibration history id' })
+    return
+  }
+
+  try {
+    const result = await sequelize.transaction(async (transaction) => {
+      const entry = await CalibrationCompletionHistory.findByPk(id, { transaction })
+      if (!entry) {
+        return { deleted: false, asset: null as Asset | null }
+      }
+
+      const assetId = entry.assetId
+      await CalibrationCompletionHistory.destroy({
+        where: { id },
+        transaction,
+      })
+      await syncAssetLastCalibrationFromHistory(assetId, transaction)
+      const asset = await Asset.findByPk(assetId, { transaction })
+      return { deleted: true, asset }
+    })
+
+    if (!result.deleted) {
+      res.status(404).json({ error: 'Calibration history entry not found' })
+      return
+    }
+
+    res.json({
+      deleted: true,
+      asset: result.asset ? await withDerivedAssetFields(result.asset) : null,
+    })
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to delete calibration history entry'
+    res.status(500).json({ error: message })
+  }
 })
 
 app.get('/api/reports/pm-compliance', async (req, res) => {
@@ -1196,16 +1488,22 @@ app.get('/api/reports/pm-compliance', async (req, res) => {
     return
   }
 
-  const pmWhere = parsed.data.locationId
+  const recordWhere = parsed.data.locationId
     ? { locationId: parsed.data.locationId }
     : undefined
 
-  const pms = await PreventativeMaintenance.findAll({
-    where: pmWhere,
-    order: [['id', 'ASC']],
-  })
+  const [pms, assets] = await Promise.all([
+    PreventativeMaintenance.findAll({
+      where: recordWhere,
+      order: [['id', 'ASC']],
+    }),
+    Asset.findAll({
+      where: recordWhere,
+      order: [['id', 'ASC']],
+    }),
+  ])
 
-  if (!pms.length) {
+  if (!pms.length && !assets.length) {
     res.json({
       range: { start, end, locationId: parsed.data.locationId ?? null },
       summary: {
@@ -1221,23 +1519,35 @@ app.get('/api/reports/pm-compliance', async (req, res) => {
   }
 
   const pmIds = pms.map((pm) => pm.id)
-  const locationIds = Array.from(new Set(pms.map((pm) => pm.locationId)))
-  const assetIds = Array.from(
-    new Set(pms.map((pm) => pm.assetId).filter((id): id is number => Number.isInteger(id)))
+  const calibrationAssets = assets.filter((asset) => Boolean(asset.calDue?.trim()))
+  const calibrationAssetIds = calibrationAssets.map((asset) => asset.id)
+  const locationIds = Array.from(
+    new Set([
+      ...pms.map((pm) => pm.locationId),
+      ...assets.map((asset) => asset.locationId),
+    ])
   )
 
-  const [locations, assets, history] = await Promise.all([
+  const [locations, pmHistory, calibrationHistory] = await Promise.all([
     Location.findAll({ where: { id: { [Op.in]: locationIds } as any } }),
-    assetIds.length
-      ? Asset.findAll({ where: { id: { [Op.in]: assetIds } as any } })
+    pmIds.length
+      ? PmCompletionHistory.findAll({
+          where: {
+            preventativeMaintenanceId: { [Op.in]: pmIds } as any,
+            dueDate: { [Op.gte]: start, [Op.lte]: end } as any,
+          },
+          order: [['dueDate', 'ASC']],
+        })
       : Promise.resolve([]),
-    PmCompletionHistory.findAll({
-      where: {
-        preventativeMaintenanceId: { [Op.in]: pmIds } as any,
-        dueDate: { [Op.gte]: start, [Op.lte]: end } as any,
-      },
-      order: [['dueDate', 'ASC']],
-    }),
+    calibrationAssetIds.length
+      ? CalibrationCompletionHistory.findAll({
+          where: {
+            assetId: { [Op.in]: calibrationAssetIds } as any,
+            dueDate: { [Op.gte]: start, [Op.lte]: end } as any,
+          },
+          order: [['dueDate', 'ASC']],
+        })
+      : Promise.resolve([]),
   ])
 
   const locationNameById = Object.fromEntries(locations.map((location) => [location.id, location.name]))
@@ -1250,15 +1560,18 @@ app.get('/api/reports/pm-compliance', async (req, res) => {
       return [asset.id, label || `Asset #${asset.id}`]
     })
   )
-  const historyByKey = Object.fromEntries(
-    history.map((item) => [`${item.preventativeMaintenanceId}|${item.dueDate}`, item])
+  const pmHistoryByKey = Object.fromEntries(
+    pmHistory.map((item) => [`${item.preventativeMaintenanceId}|${item.dueDate}`, item])
+  )
+  const calibrationHistoryByKey = Object.fromEntries(
+    calibrationHistory.map((item) => [`${item.assetId}|${item.dueDate}`, item])
   )
 
   const today = todayIso()
-  const rows = pms.flatMap((pm) => {
+  const pmRows = pms.flatMap((pm) => {
     const dueDates = buildDueDatesInRange(pm, startDate, endDate)
     return dueDates.map((dueDate) => {
-      const historyEntry = historyByKey[`${pm.id}|${dueDate}`]
+      const historyEntry = pmHistoryByKey[`${pm.id}|${dueDate}`]
       const completedAt = historyEntry?.completedAt ?? null
       const completed = Boolean(completedAt)
       const late = completed ? completedAt! > dueDate : false
@@ -1271,6 +1584,9 @@ app.get('/api/reports/pm-compliance', async (req, res) => {
           : 'scheduled'
 
       return {
+        reportKey: `pm-${pm.id}-${dueDate}`,
+        sourceType: 'pm',
+        sourceId: pm.id,
         preventativeMaintenanceId: pm.id,
         title: pm.title ?? null,
         recurrence: pm.recurrence ?? pm.frequency ?? null,
@@ -1288,6 +1604,49 @@ app.get('/api/reports/pm-compliance', async (req, res) => {
       }
     })
   })
+
+  const calibrationRows = calibrationAssets.flatMap((asset) => {
+    const dueDates = buildCalibrationDueDatesInRange(asset, startDate, endDate)
+    return dueDates.map((dueDate) => {
+      const historyEntry = calibrationHistoryByKey[`${asset.id}|${dueDate}`]
+      const completedAt = historyEntry?.completedAt ?? null
+      const completed = Boolean(completedAt)
+      const late = completed ? completedAt! > dueDate : false
+      const status = completed
+        ? late
+          ? 'completed-late'
+          : 'completed-on-time'
+        : dueDate < today
+          ? 'missed'
+          : 'scheduled'
+
+      return {
+        reportKey: `calibration-${asset.id}-${dueDate}`,
+        sourceType: 'calibration',
+        sourceId: asset.id,
+        preventativeMaintenanceId: null,
+        title: 'Calibration Due',
+        recurrence: asset.calFreq ?? null,
+        dueDate,
+        completedAt,
+        status,
+        happened: completed,
+        locationId: asset.locationId,
+        locationName: locationNameById[asset.locationId] ?? `Location #${asset.locationId}`,
+        assetId: asset.id,
+        assetLabel: assetLabelById[asset.id] ?? `Asset #${asset.id}`,
+        notes: historyEntry?.notes ?? null,
+      }
+    })
+  })
+
+  const rows = [...pmRows, ...calibrationRows].sort(
+    (a, b) =>
+      a.dueDate.localeCompare(b.dueDate) ||
+      a.locationName.localeCompare(b.locationName) ||
+      a.sourceType.localeCompare(b.sourceType) ||
+      a.assetLabel.localeCompare(b.assetLabel)
+  )
 
   const summary = rows.reduce(
     (acc, row) => {
