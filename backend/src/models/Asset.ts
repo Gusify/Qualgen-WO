@@ -5,8 +5,10 @@ import {
   DataType,
   ForeignKey,
   BelongsTo,
+  HasMany,
 } from 'sequelize-typescript'
 import { Location } from './Location'
+import { PmCompletionHistory } from './PmCompletionHistory'
 
 @Table({ tableName: 'assets' })
 export class Asset extends Model<Asset> {
@@ -23,6 +25,9 @@ export class Asset extends Model<Asset> {
 
   @BelongsTo(() => Location)
   declare locationRef?: Location
+
+  @HasMany(() => PmCompletionHistory)
+  declare pmCompletionHistory?: PmCompletionHistory[]
 
   @Column(DataType.STRING)
   declare aid?: string | null

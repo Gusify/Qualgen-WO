@@ -4,6 +4,8 @@ import { WorkOrder } from './models/WorkOrder'
 import { Asset } from './models/Asset'
 import { PreventativeMaintenance } from './models/PreventativeMaintenance'
 import { LocationNote } from './models/LocationNote'
+import { PmCompletionHistory } from './models/PmCompletionHistory'
+import { Contact } from './models/Contact'
 
 const dbHost = process.env.DB_HOST || 'localhost'
 const dbPort = Number(process.env.DB_PORT) || 3306
@@ -19,7 +21,15 @@ export const sequelize = new Sequelize({
   username: dbUser,
   password: dbPassword,
   logging: false,
-  models: [Location, WorkOrder, Asset, PreventativeMaintenance, LocationNote],
+  models: [
+    Location,
+    WorkOrder,
+    Asset,
+    PreventativeMaintenance,
+    LocationNote,
+    PmCompletionHistory,
+    Contact,
+  ],
 })
 
 const defaultLocations = [
@@ -36,6 +46,6 @@ async function seedLocations() {
 }
 
 export async function initDb() {
-  await sequelize.sync()
+  await sequelize.sync({ alter: true })
   await seedLocations()
 }
