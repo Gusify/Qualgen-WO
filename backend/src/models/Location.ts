@@ -9,6 +9,7 @@ import { WorkOrder } from './WorkOrder'
 import { Asset } from './Asset'
 import { PreventativeMaintenance } from './PreventativeMaintenance'
 import { LocationNote } from './LocationNote'
+import { PmCompletionHistory } from './PmCompletionHistory'
 
 @Table({ tableName: 'locations' })
 export class Location extends Model<Location> {
@@ -37,4 +38,7 @@ export class Location extends Model<Location> {
 
   @HasMany(() => LocationNote)
   declare notes?: LocationNote[]
+
+  @HasMany(() => PmCompletionHistory)
+  declare pmCompletionHistory?: PmCompletionHistory[]
 }

@@ -1,4 +1,6 @@
 import type {
+  Contact,
+  ContactInput,
   Location,
   Asset,
   AssetInput,
@@ -6,6 +8,9 @@ import type {
   WorkOrderInput,
   PreventativeMaintenance,
   PreventativeMaintenanceInput,
+  PmCompletionHistory,
+  PmCompletionHistoryInput,
+  PmComplianceReportResponse,
   LocationNote,
   LocationNoteInput,
 } from '../types'
@@ -30,6 +35,26 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getContacts() {
+    return request<Contact[]>('/api/contacts')
+  },
+  createContact(payload: ContactInput) {
+    return request<Contact>('/api/contacts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  updateContact(id: number, payload: Partial<ContactInput>) {
+    return request<Contact>(`/api/contacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteContact(id: number) {
+    return request<{ deleted: boolean }>(`/api/contacts/${id}`, {
+      method: 'DELETE',
+    })
+  },
   getLocations() {
     return request<Location[]>('/api/locations')
   },
@@ -39,6 +64,12 @@ export const api = {
   createAsset(locationId: number, payload: AssetInput) {
     return request<Asset>(`/api/locations/${locationId}/assets`, {
       method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  updateAsset(id: number, payload: Partial<AssetInput>) {
+    return request<Asset>(`/api/assets/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     })
   },
@@ -79,6 +110,37 @@ export const api = {
     return request<{ deleted: boolean }>(
       `/api/preventative-maintenances/${id}`,
       { method: 'DELETE' }
+    )
+  },
+  getPreventativeCompletionHistory(id: number) {
+    return request<PmCompletionHistory[]>(
+      `/api/preventative-maintenances/${id}/completion-history`
+    )
+  },
+  createPreventativeCompletionHistory(
+    id: number,
+    payload: PmCompletionHistoryInput
+  ) {
+    return request<{
+      history: PmCompletionHistory
+      preventativeMaintenance: PreventativeMaintenance
+    }>(`/api/preventative-maintenances/${id}/completion-history`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  getPmComplianceReport(params?: {
+    start?: string
+    end?: string
+    locationId?: number
+  }) {
+    const searchParams = new URLSearchParams()
+    if (params?.start) searchParams.set('start', params.start)
+    if (params?.end) searchParams.set('end', params.end)
+    if (params?.locationId) searchParams.set('locationId', String(params.locationId))
+    const query = searchParams.toString()
+    return request<PmComplianceReportResponse>(
+      `/api/reports/pm-compliance${query ? `?${query}` : ''}`
     )
   },
   getNotes(locationId: number) {
