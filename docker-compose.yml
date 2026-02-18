@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: qualgen-wo-db
+    environment:
+      MYSQL_DATABASE: qualgen_wo
+      MYSQL_USER: qualgen
+      MYSQL_PASSWORD: qualgenpass
+      MYSQL_ROOT_PASSWORD: qualgenroot
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qualgen-wo-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: qualgen_wo
+      DB_USER: qualgen
+      DB_PASSWORD: qualgenpass
+      NODE_ENV: production
+    volumes:
+      - ./backend/.env:/app/.env:ro
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3001
+    container_name: qualgen-wo-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  db_data:
