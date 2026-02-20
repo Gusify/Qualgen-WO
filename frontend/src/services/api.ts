@@ -17,6 +17,8 @@ import type {
   MsGraphStatusResponse,
   LocationNote,
   LocationNoteInput,
+  UnmatchedAssetImport,
+  CsvAssetImportResponse,
 } from '../types'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
@@ -78,6 +80,38 @@ export const api = {
   },
   getAssets(locationId: number) {
     return request<Asset[]>(`/api/locations/${locationId}/assets`)
+  },
+  importAssetsCsv(payload: { csvText: string }) {
+    return request<CsvAssetImportResponse>('/api/assets/import-csv', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  getUnmatchedAssets() {
+    return request<UnmatchedAssetImport[]>('/api/assets/unmatched')
+  },
+  updateUnmatchedAsset(
+    id: number,
+    payload: Partial<Omit<UnmatchedAssetImport, 'id' | 'createdAt' | 'updatedAt'>>
+  ) {
+    return request<UnmatchedAssetImport>(`/api/assets/unmatched/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteUnmatchedAsset(id: number) {
+    return request<{ deleted: boolean }>(`/api/assets/unmatched/${id}`, {
+      method: 'DELETE',
+    })
+  },
+  promoteUnmatchedAsset(id: number, payload?: { locationId?: number }) {
+    return request<{ locationId: number; asset: Asset }>(
+      `/api/assets/unmatched/${id}/promote`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }
+    )
   },
   createAsset(locationId: number, payload: AssetInput) {
     return request<Asset>(`/api/locations/${locationId}/assets`, {

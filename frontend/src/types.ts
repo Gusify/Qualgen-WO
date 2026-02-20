@@ -57,6 +57,27 @@ export type Asset = WorkOrder
 
 export type AssetInput = WorkOrderInput
 
+export interface UnmatchedAssetImport extends AssetInput {
+  id: number
+  sourceRowNumber?: number | null
+  sourceLocation?: string | null
+  sourceLocationNormalized?: string | null
+  mappedLocationId?: number | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface CsvAssetImportResponse {
+  importedCount: number
+  unmatchedCount: number
+  skippedCount: number
+  errorCount: number
+  errors: Array<{
+    row: number
+    reason: string
+  }>
+}
+
 export interface PreventativeMaintenance {
   id: number
   locationId: number

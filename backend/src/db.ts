@@ -7,6 +7,7 @@ import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
 import { CalibrationCompletionHistory } from './models/CalibrationCompletionHistory'
 import { Contact } from './models/Contact'
+import { UnmatchedAssetImport } from './models/UnmatchedAssetImport'
 
 const dbHost = process.env.DB_HOST || 'localhost'
 const dbPort = Number(process.env.DB_PORT) || 3306
@@ -44,6 +45,7 @@ export const sequelize = new Sequelize({
     PmCompletionHistory,
     CalibrationCompletionHistory,
     Contact,
+    UnmatchedAssetImport,
   ],
 })
 
@@ -59,7 +61,7 @@ const assertSchemaReady = async () => {
 
 const defaultLocations = [
   'Enterprise',
-  'Brisol',
+  'Bristol',
   '100 Oaks',
   'Retail Pharamacy',
 ]

@@ -329,6 +329,10 @@ h1 {
   display: block;
 }
 
+.imports-page {
+  display: block;
+}
+
 .global-calendar-card {
   padding: 16px;
   border-radius: 18px;
@@ -338,6 +342,14 @@ h1 {
 }
 
 .contacts-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--paper);
+  border: 1px solid rgba(31, 27, 22, 0.08);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+
+.imports-card {
   padding: 16px;
   border-radius: 18px;
   background: var(--paper);
@@ -517,6 +529,12 @@ h1 {
   border-radius: 16px;
 }
 
+.asset-checkbox-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
 .dialog-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -529,6 +547,60 @@ h1 {
 
 .contact-notes {
   margin-top: 12px;
+}
+
+.import-csv-textarea {
+  margin-top: 12px;
+}
+
+.import-helper {
+  margin-top: 10px;
+}
+
+.import-file-name {
+  margin-bottom: 8px;
+}
+
+.inline-select {
+  min-width: 120px;
+  max-width: 120px;
+}
+
+.imports-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.imports-table td,
+.imports-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.imports-col-serial {
+  width: 110px;
+  max-width: 110px;
+}
+
+.imports-col-actions {
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.imports-table td.imports-col-actions,
+.imports-table th.imports-col-actions {
+  overflow: visible;
+  text-overflow: clip;
+  padding-right: 6px;
+}
+
+.imports-col-actions .v-btn {
+  margin-left: 2px;
 }
 
 .calibration-history-notes {

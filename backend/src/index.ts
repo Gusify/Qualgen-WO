@@ -13,6 +13,7 @@ import { LocationNote } from './models/LocationNote'
 import { PmCompletionHistory } from './models/PmCompletionHistory'
 import { CalibrationCompletionHistory } from './models/CalibrationCompletionHistory'
 import { Contact } from './models/Contact'
+import { UnmatchedAssetImport } from './models/UnmatchedAssetImport'
 
 const app = express()
 app.use(cors())
@@ -42,6 +43,39 @@ const workOrderSchema = z.object({
 })
 
 const assetSchema = workOrderSchema
+
+const csvImportSchema = z.object({
+  csvText: z.string().min(1),
+})
+
+const unmatchedAssetUpdateSchema = z.object({
+  sourceLocation: z.string().optional().nullable(),
+  mappedLocationId: z.number().int().positive().optional().nullable(),
+  aid: z.string().optional().nullable(),
+  manufacturerModel: z.string().optional().nullable(),
+  equipmentDescription: z.string().optional().nullable(),
+  location: z.string().optional().nullable(),
+  activeRetired: z.string().optional().nullable(),
+  owner: z.string().optional().nullable(),
+  calDue: z.string().optional().nullable(),
+  serialNumber: z.string().optional().nullable(),
+  gmp: z.string().optional().nullable(),
+  pmFreq: z.string().optional().nullable(),
+  lastPm: z.string().optional().nullable(),
+  pm: z.string().optional().nullable(),
+  revalidationCertification: z.string().optional().nullable(),
+  calFreq: z.string().optional().nullable(),
+  lastCalibration: z.string().optional().nullable(),
+  calibrationRange: z.string().optional().nullable(),
+  sop: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  reviewerInitialDate: z.string().optional().nullable(),
+  reconciledWithCrossList: z.string().optional().nullable(),
+})
+
+const unmatchedAssetPromoteSchema = z.object({
+  locationId: z.number().int().positive().optional(),
+})
 
 const recurrenceValues = [
   'weekly',
@@ -116,6 +150,7 @@ const contactSchema = z.object({
   notes: z.string().optional().nullable(),
 })
 
+type AssetPayload = z.infer<typeof assetSchema>
 type RecurrenceValue = (typeof recurrenceValues)[number]
 
 const parseIsoDate = (value: string) => {
@@ -148,6 +183,160 @@ const addMonths = (date: Date, months: number) => {
   const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()
   next.setDate(Math.min(dayOfMonth, maxDay))
   return next
+}
+
+const normalizeLocation = (value?: string | null) =>
+  (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ')
+
+const normalizeCsvHeader = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+
+const assetImportFieldNames = [
+  'aid',
+  'manufacturerModel',
+  'equipmentDescription',
+  'location',
+  'activeRetired',
+  'owner',
+  'calDue',
+  'serialNumber',
+  'gmp',
+  'pmFreq',
+  'lastPm',
+  'pm',
+  'revalidationCertification',
+  'calFreq',
+  'lastCalibration',
+  'calibrationRange',
+  'sop',
+  'notes',
+  'reviewerInitialDate',
+  'reconciledWithCrossList',
+] as const satisfies Array<keyof AssetPayload>
+
+type AssetImportFieldName = (typeof assetImportFieldNames)[number]
+
+const csvHeaderToAssetField: Record<string, AssetImportFieldName> = {
+  aid: 'aid',
+  assetid: 'aid',
+  assetnumber: 'aid',
+  manufacturermodel: 'manufacturerModel',
+  manufacturer: 'manufacturerModel',
+  model: 'manufacturerModel',
+  equipmentdescription: 'equipmentDescription',
+  equipment: 'equipmentDescription',
+  description: 'equipmentDescription',
+  location: 'location',
+  site: 'location',
+  activeretired: 'activeRetired',
+  retired: 'activeRetired',
+  owner: 'owner',
+  caldue: 'calDue',
+  calibrationdue: 'calDue',
+  serialnumber: 'serialNumber',
+  serial: 'serialNumber',
+  gmp: 'gmp',
+  pmfreq: 'pmFreq',
+  pmfrequency: 'pmFreq',
+  lastpm: 'lastPm',
+  pm: 'pm',
+  revalidationcertification: 'revalidationCertification',
+  revalidation: 'revalidationCertification',
+  certification: 'revalidationCertification',
+  calfreq: 'calFreq',
+  calibrationfreq: 'calFreq',
+  calibrationfrequency: 'calFreq',
+  lastcalibration: 'lastCalibration',
+  calibrationrange: 'calibrationRange',
+  calrange: 'calibrationRange',
+  sop: 'sop',
+  notes: 'notes',
+  reviewerinitialdate: 'reviewerInitialDate',
+  reconciledwithcrosslist: 'reconciledWithCrossList',
+}
+
+const parseCsv = (csvText: string) => {
+  const rows: string[][] = []
+  let currentRow: string[] = []
+  let currentField = ''
+  let insideQuotes = false
+
+  const pushField = () => {
+    currentRow.push(currentField)
+    currentField = ''
+  }
+
+  const pushRow = () => {
+    if (currentRow.length === 1 && currentRow[0] === '') {
+      currentRow = []
+      return
+    }
+    rows.push(currentRow)
+    currentRow = []
+  }
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index]
+    const nextChar = csvText[index + 1]
+
+    if (insideQuotes) {
+      if (char === '"' && nextChar === '"') {
+        currentField += '"'
+        index += 1
+      } else if (char === '"') {
+        insideQuotes = false
+      } else {
+        currentField += char
+      }
+      continue
+    }
+
+    if (char === '"') {
+      insideQuotes = true
+      continue
+    }
+    if (char === ',') {
+      pushField()
+      continue
+    }
+    if (char === '\n') {
+      pushField()
+      pushRow()
+      continue
+    }
+    if (char === '\r') {
+      continue
+    }
+
+    currentField += char
+  }
+
+  pushField()
+  if (currentRow.length > 1 || currentRow[0] !== '') {
+    pushRow()
+  }
+
+  return rows
+}
+
+const trimToNullable = (value?: string | null) => {
+  if (value === undefined || value === null) return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const normalizeAssetImportPayload = (payload: Partial<AssetPayload>) => {
+  const cleaned = {} as Record<AssetImportFieldName, string | null>
+  for (const field of assetImportFieldNames) {
+    cleaned[field] = trimToNullable(payload[field])
+  }
+  return cleaned
 }
 
 const asRecurrence = (value?: string | null): RecurrenceValue | null => {
@@ -969,6 +1158,253 @@ app.get('/api/assets', async (_req, res) => {
   })
   const enriched = await Promise.all(assets.map((asset) => withDerivedAssetFields(asset)))
   res.json(enriched)
+})
+
+app.get('/api/assets/unmatched', async (_req, res) => {
+  const items = await UnmatchedAssetImport.findAll({
+    order: [['updatedAt', 'DESC']],
+  })
+  res.json(items)
+})
+
+app.patch('/api/assets/unmatched/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid unmatched asset id' })
+    return
+  }
+
+  const parsed = unmatchedAssetUpdateSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const item = await UnmatchedAssetImport.findByPk(id)
+  if (!item) {
+    res.status(404).json({ error: 'Unmatched asset not found' })
+    return
+  }
+
+  if (parsed.data.mappedLocationId !== undefined && parsed.data.mappedLocationId !== null) {
+    const location = await Location.findByPk(parsed.data.mappedLocationId)
+    if (!location) {
+      res.status(400).json({ error: 'Mapped location not found' })
+      return
+    }
+  }
+
+  const sourceLocation =
+    parsed.data.sourceLocation !== undefined
+      ? trimToNullable(parsed.data.sourceLocation)
+      : item.sourceLocation
+
+  await item.update({
+    ...parsed.data,
+    sourceLocation,
+    sourceLocationNormalized: normalizeLocation(sourceLocation),
+  } as any)
+
+  res.json(item)
+})
+
+app.delete('/api/assets/unmatched/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid unmatched asset id' })
+    return
+  }
+
+  const deleted = await UnmatchedAssetImport.destroy({ where: { id } })
+  res.json({ deleted: deleted > 0 })
+})
+
+app.post('/api/assets/unmatched/:id/promote', async (req, res) => {
+  const id = Number(req.params.id)
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: 'Invalid unmatched asset id' })
+    return
+  }
+
+  const parsed = unmatchedAssetPromoteSchema.safeParse(req.body ?? {})
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const item = await UnmatchedAssetImport.findByPk(id)
+  if (!item) {
+    res.status(404).json({ error: 'Unmatched asset not found' })
+    return
+  }
+
+  const allLocations = await Location.findAll()
+  const normalizedToLocation = new Map(
+    allLocations.map((location) => [normalizeLocation(location.name), location])
+  )
+
+  let locationId: number | null = parsed.data.locationId ?? null
+  if (!locationId && item.mappedLocationId) {
+    locationId = item.mappedLocationId
+  }
+  if (!locationId) {
+    const normalized = normalizeLocation(item.sourceLocation)
+    const matched = normalized ? normalizedToLocation.get(normalized) : null
+    if (matched) locationId = matched.id
+  }
+
+  if (!locationId) {
+    res.status(400).json({
+      error: 'No matching location found. Set a mapped location before promoting.',
+    })
+    return
+  }
+
+  const location = await Location.findByPk(locationId)
+  if (!location) {
+    res.status(400).json({ error: 'Location not found' })
+    return
+  }
+
+  const asset = await sequelize.transaction(async (transaction) => {
+    const created = await Asset.create(
+      {
+        locationId,
+        aid: item.aid ?? null,
+        manufacturerModel: item.manufacturerModel ?? null,
+        equipmentDescription: item.equipmentDescription ?? null,
+        location: item.location ?? item.sourceLocation ?? location.name,
+        activeRetired: item.activeRetired ?? null,
+        owner: item.owner ?? null,
+        calDue: item.calDue ?? null,
+        serialNumber: item.serialNumber ?? null,
+        gmp: item.gmp ?? null,
+        pmFreq: item.pmFreq ?? null,
+        lastPm: item.lastPm ?? null,
+        pm: item.pm ?? null,
+        revalidationCertification: item.revalidationCertification ?? null,
+        calFreq: item.calFreq ?? null,
+        lastCalibration: item.lastCalibration ?? null,
+        calibrationRange: item.calibrationRange ?? null,
+        sop: item.sop ?? null,
+        notes: item.notes ?? null,
+        reviewerInitialDate: item.reviewerInitialDate ?? null,
+        reconciledWithCrossList: item.reconciledWithCrossList ?? null,
+      } as any,
+      { transaction }
+    )
+    await item.destroy({ transaction })
+    return created
+  })
+
+  res.json({
+    locationId,
+    asset: await withDerivedAssetFields(asset),
+  })
+})
+
+app.post('/api/assets/import-csv', async (req, res) => {
+  const parsed = csvImportSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payload', details: parsed.error.format() })
+    return
+  }
+
+  const rows = parseCsv(parsed.data.csvText)
+  if (!rows.length) {
+    res.status(400).json({ error: 'CSV is empty' })
+    return
+  }
+
+  const headerRow = rows[0]
+  const dataRows = rows.slice(1)
+  if (!headerRow.length || !dataRows.length) {
+    res.status(400).json({ error: 'CSV must include headers and at least one data row' })
+    return
+  }
+
+  const normalizedHeaders = headerRow.map((header) => normalizeCsvHeader(header))
+  const locations = await Location.findAll()
+  const locationByNormalizedName = new Map(
+    locations.map((location) => [normalizeLocation(location.name), location])
+  )
+
+  let importedCount = 0
+  let unmatchedCount = 0
+  let skippedCount = 0
+  const errors: Array<{ row: number; reason: string }> = []
+
+  for (let index = 0; index < dataRows.length; index += 1) {
+    const rawRow = dataRows[index]
+    const rowNumber = index + 2
+
+    if (!rawRow.length) {
+      skippedCount += 1
+      continue
+    }
+
+    const rowPayload: Partial<AssetPayload> = {}
+
+    for (let columnIndex = 0; columnIndex < normalizedHeaders.length; columnIndex += 1) {
+      const headerKey = normalizedHeaders[columnIndex]
+      const field = csvHeaderToAssetField[headerKey]
+      if (!field) continue
+
+      const value = rawRow[columnIndex] ?? ''
+      const trimmed = value.trim()
+      if (!trimmed.length) continue
+      if (!rowPayload[field]) {
+        rowPayload[field] = trimmed as any
+      }
+    }
+
+    const cleanedPayload = normalizeAssetImportPayload(rowPayload)
+    const hasAssetData = assetImportFieldNames.some((field) => {
+      const value = cleanedPayload[field]
+      return value !== null && value.length > 0
+    })
+
+    if (!hasAssetData) {
+      skippedCount += 1
+      continue
+    }
+
+    const sourceLocation = cleanedPayload.location ?? null
+    const matchedLocation =
+      sourceLocation !== null
+        ? locationByNormalizedName.get(normalizeLocation(sourceLocation))
+        : undefined
+
+    try {
+      if (matchedLocation) {
+        await Asset.create({
+          locationId: matchedLocation.id,
+          ...cleanedPayload,
+        } as any)
+        importedCount += 1
+      } else {
+        await UnmatchedAssetImport.create({
+          sourceRowNumber: rowNumber,
+          sourceLocation,
+          sourceLocationNormalized: normalizeLocation(sourceLocation),
+          mappedLocationId: null,
+          ...cleanedPayload,
+        } as any)
+        unmatchedCount += 1
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Failed to import row'
+      errors.push({ row: rowNumber, reason })
+    }
+  }
+
+  res.json({
+    importedCount,
+    unmatchedCount,
+    skippedCount,
+    errorCount: errors.length,
+    errors: errors.slice(0, 25),
+  })
 })
 
 app.get('/api/locations/:locationId/assets', async (req, res) => {

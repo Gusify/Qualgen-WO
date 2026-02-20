@@ -15,6 +15,7 @@ import type {
   CalibrationCompletionHistory,
   LocationNote,
   LocationNoteInput,
+  UnmatchedAssetImport,
 } from './types'
 
 const loading = ref(true)
@@ -22,7 +23,7 @@ const errorMessage = ref('')
 const locations = ref<Location[]>([])
 const contacts = ref<Contact[]>([])
 
-type ViewMode = 'locations' | 'global-calendar' | 'contacts'
+type ViewMode = 'locations' | 'global-calendar' | 'imports' | 'contacts'
 const viewMode = ref<ViewMode>('locations')
 
 const tabByLocation = reactive<Record<number, string>>({})
@@ -30,8 +31,9 @@ const assets = reactive<Record<number, Asset[]>>({})
 const preventatives = reactive<Record<number, PreventativeMaintenance[]>>({})
 const notes = reactive<Record<number, LocationNote[]>>({})
 const calendarMonthByLocation = reactive<Record<number, string>>({})
+const unmatchedAssets = ref<UnmatchedAssetImport[]>([])
 
-const locationOrder = ['Enterprise', 'Brisol', '100 Oaks', 'Retail Pharamacy']
+const locationOrder = ['Enterprise', 'Bristol', '100 Oaks', 'Retail Pharamacy']
 
 const sortedLocations = computed(() => {
   return [...locations.value].sort((a, b) => {
@@ -41,6 +43,28 @@ const sortedLocations = computed(() => {
     if (indexA === -1) return 1
     if (indexB === -1) return -1
     return indexA - indexB
+  })
+})
+
+const locationOptions = computed(() =>
+  sortedLocations.value.map((location) => ({
+    title: location.name,
+    value: location.id,
+  }))
+)
+
+const sortedUnmatchedAssets = computed(() => {
+  const rows = [...unmatchedAssets.value]
+  const sortBy = unmatchedSortBy.value
+  return rows.sort((a, b) => {
+    if (sortBy === 'updatedAt') {
+      const aTime = new Date(a.updatedAt ?? 0).getTime()
+      const bTime = new Date(b.updatedAt ?? 0).getTime()
+      return bTime - aTime
+    }
+    const aValue = (a[sortBy] ?? '').toString().toLowerCase()
+    const bValue = (b[sortBy] ?? '').toString().toLowerCase()
+    return aValue.localeCompare(bValue)
   })
 })
 
@@ -120,6 +144,7 @@ const weekdayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const pageTitle = computed(() => {
   if (viewMode.value === 'locations') return 'Assets, PMs, and Notes'
   if (viewMode.value === 'global-calendar') return 'Calendar'
+  if (viewMode.value === 'imports') return 'Import Library'
   return 'Business Contacts'
 })
 
@@ -129,6 +154,9 @@ const pageSubtitle = computed(() => {
   }
   if (viewMode.value === 'global-calendar') {
     return 'Full recurring preventive maintenance and calibration calendar across every location.'
+  }
+  if (viewMode.value === 'imports') {
+    return 'CSV staging area for imported assets with unknown locations. Edit, sort, and promote into location libraries.'
   }
   return 'Company-wide contact directory for vendors, service providers, and key partners.'
 })
@@ -140,6 +168,7 @@ const emptyAssetDraft = (): AssetInput => ({
   location: '',
   owner: '',
   serialNumber: '',
+  gmp: '',
   revalidationCertification: '',
   sop: '',
   notes: '',
@@ -150,6 +179,7 @@ const assetSaving = ref(false)
 const activeAssetLocationId = ref<number | null>(null)
 const activeAssetEditId = ref<number | null>(null)
 const assetDraft = reactive<AssetInput>(emptyAssetDraft())
+const assetGmpChecked = ref(false)
 
 const assetDialogTitle = computed(() =>
   activeAssetEditId.value ? 'Edit Asset' : 'Add Asset'
@@ -272,6 +302,38 @@ const setSnackbar = (message: string, color = 'success') => {
   snackbar.color = color
   snackbar.show = true
 }
+
+const csvImportDialog = ref(false)
+const csvImporting = ref(false)
+const csvImportText = ref('')
+const csvImportFileName = ref('')
+
+const unmatchedSortBy = ref<'updatedAt' | 'sourceLocation' | 'aid' | 'equipmentDescription'>(
+  'updatedAt'
+)
+const unmatchedSortOptions = [
+  { title: 'Last Updated', value: 'updatedAt' },
+  { title: 'Source Location', value: 'sourceLocation' },
+  { title: 'Asset ID', value: 'aid' },
+  { title: 'Equipment Description', value: 'equipmentDescription' },
+] as const
+
+const unmatchedEditDialog = ref(false)
+const unmatchedSaving = ref(false)
+const activeUnmatchedEditId = ref<number | null>(null)
+const unmatchedDraft = reactive({
+  sourceLocation: '',
+  mappedLocationId: null as number | null,
+  aid: '',
+  manufacturerModel: '',
+  equipmentDescription: '',
+  location: '',
+  owner: '',
+  serialNumber: '',
+  revalidationCertification: '',
+  sop: '',
+  notes: '',
+})
 
 const formatValue = (value?: string | null) => {
   if (value === null || value === undefined) return '—'
@@ -509,6 +571,12 @@ const cleanPayload = <T extends Record<string, unknown>>(payload: T) => {
       return [key, value]
     })
   ) as T
+}
+
+const isCheckedValue = (value?: string | null) => {
+  if (!value) return false
+  const normalized = value.trim().toLowerCase()
+  return ['true', '1', 'yes', 'y', 'checked'].includes(normalized)
 }
 
 const getMonthBounds = (month: string) => {
@@ -765,11 +833,158 @@ const loadLocationData = async (locationId: number) => {
   notes[locationId] = noteData
 }
 
+const loadUnmatchedAssets = async () => {
+  unmatchedAssets.value = await api.getUnmatchedAssets()
+}
+
+const refreshUnmatchedAssets = async () => {
+  try {
+    await loadUnmatchedAssets()
+    setSnackbar('Import library refreshed')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to refresh import library'
+    setSnackbar(message, 'error')
+  }
+}
+
+const readFileAsText = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(new Error('Failed to read CSV file'))
+    reader.readAsText(file)
+  })
+
+const onCsvFileSelected = async (files: File | File[] | null) => {
+  const selected = Array.isArray(files) ? files[0] : files
+  if (!selected) return
+
+  try {
+    csvImportText.value = await readFileAsText(selected)
+    csvImportFileName.value = selected.name
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to read CSV file'
+    setSnackbar(message, 'error')
+  }
+}
+
+const openCsvImportDialog = () => {
+  csvImportText.value = ''
+  csvImportFileName.value = ''
+  csvImportDialog.value = true
+}
+
+const submitCsvImport = async () => {
+  const csvText = csvImportText.value.trim()
+  if (!csvText.length) {
+    setSnackbar('Upload or paste CSV content first', 'error')
+    return
+  }
+
+  csvImporting.value = true
+  try {
+    const result = await api.importAssetsCsv({ csvText })
+    csvImportDialog.value = false
+    await refreshAll()
+    setSnackbar(
+      `Import complete: ${result.importedCount} imported, ${result.unmatchedCount} sent to import library, ${result.skippedCount} skipped`
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CSV import failed'
+    setSnackbar(message, 'error')
+  } finally {
+    csvImporting.value = false
+  }
+}
+
+const openUnmatchedEditDialog = (item: UnmatchedAssetImport) => {
+  activeUnmatchedEditId.value = item.id
+  Object.assign(unmatchedDraft, {
+    sourceLocation: item.sourceLocation ?? '',
+    mappedLocationId: item.mappedLocationId ?? null,
+    aid: item.aid ?? '',
+    manufacturerModel: item.manufacturerModel ?? '',
+    equipmentDescription: item.equipmentDescription ?? '',
+    location: item.location ?? '',
+    owner: item.owner ?? '',
+    serialNumber: item.serialNumber ?? '',
+    revalidationCertification: item.revalidationCertification ?? '',
+    sop: item.sop ?? '',
+    notes: item.notes ?? '',
+  })
+  unmatchedEditDialog.value = true
+}
+
+const closeUnmatchedEditDialog = () => {
+  unmatchedEditDialog.value = false
+  activeUnmatchedEditId.value = null
+}
+
+const submitUnmatchedEdit = async () => {
+  const id = activeUnmatchedEditId.value
+  if (!id) return
+  unmatchedSaving.value = true
+  try {
+    const updated = await api.updateUnmatchedAsset(id, cleanPayload({ ...unmatchedDraft }))
+    unmatchedAssets.value = unmatchedAssets.value.map((item) =>
+      item.id === updated.id ? updated : item
+    )
+    closeUnmatchedEditDialog()
+    setSnackbar('Import row updated')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update import row'
+    setSnackbar(message, 'error')
+  } finally {
+    unmatchedSaving.value = false
+  }
+}
+
+const removeUnmatchedAsset = async (id: number) => {
+  try {
+    await api.deleteUnmatchedAsset(id)
+    unmatchedAssets.value = unmatchedAssets.value.filter((item) => item.id !== id)
+    setSnackbar('Import row deleted')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to delete import row'
+    setSnackbar(message, 'error')
+  }
+}
+
+const updateUnmatchedMappedLocation = async (
+  item: UnmatchedAssetImport,
+  mappedLocationId: number | null
+) => {
+  try {
+    const updated = await api.updateUnmatchedAsset(item.id, { mappedLocationId })
+    unmatchedAssets.value = unmatchedAssets.value.map((entry) =>
+      entry.id === item.id ? updated : entry
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to map location'
+    setSnackbar(message, 'error')
+  }
+}
+
+const promoteUnmatchedAsset = async (item: UnmatchedAssetImport) => {
+  try {
+    const result = await api.promoteUnmatchedAsset(item.id, {
+      locationId: item.mappedLocationId ?? undefined,
+    })
+    const locationId = result.locationId
+    assets[locationId] = [result.asset, ...(assets[locationId] ?? [])]
+    unmatchedAssets.value = unmatchedAssets.value.filter((entry) => entry.id !== item.id)
+    setSnackbar('Asset promoted to location library')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to promote import row'
+    setSnackbar(message, 'error')
+  }
+}
+
 const refreshAll = async () => {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [locationData, contactData, msGraphStatus] = await Promise.all([
+    const [locationData, contactData, msGraphStatus, unmatchedData] = await Promise.all([
       api.getLocations(),
       api.getContacts(),
       api.getMsGraphStatus().catch(() => ({
@@ -777,9 +992,11 @@ const refreshAll = async () => {
         userId: null,
         calendarId: null,
       })),
+      api.getUnmatchedAssets(),
     ])
     locations.value = locationData
     contacts.value = contactData
+    unmatchedAssets.value = unmatchedData
     msGraphConfigured.value = msGraphStatus.configured
     for (const location of locations.value) {
       tabByLocation[location.id] = tabByLocation[location.id] || 'assets'
@@ -834,6 +1051,7 @@ const openAssetDialog = (locationId: number) => {
   activeAssetLocationId.value = locationId
   activeAssetEditId.value = null
   Object.assign(assetDraft, emptyAssetDraft())
+  assetGmpChecked.value = false
   assetDialog.value = true
 }
 
@@ -851,6 +1069,7 @@ const openEditAssetDialog = (locationId: number, item: Asset) => {
     sop: item.sop ?? '',
     notes: item.notes ?? '',
   })
+  assetGmpChecked.value = isCheckedValue(item.gmp)
   assetDialog.value = true
 }
 
@@ -964,7 +1183,10 @@ const submitAsset = async () => {
   if (!activeAssetLocationId.value) return
   assetSaving.value = true
   try {
-    const payload = cleanPayload({ ...assetDraft })
+    const payload = cleanPayload({
+      ...assetDraft,
+      gmp: assetGmpChecked.value ? 'Yes' : null,
+    })
     const editId = activeAssetEditId.value
 
     if (editId) {
@@ -1300,6 +1522,16 @@ watch(globalCalendarMonth, () => {
             @click="setViewMode('contacts')"
           >
             Contacts
+          </v-btn>
+          <v-btn
+            color="primary"
+            :variant="viewMode === 'imports' ? 'flat' : 'tonal'"
+            @click="setViewMode('imports')"
+          >
+            Import Library
+          </v-btn>
+          <v-btn variant="tonal" color="secondary" @click="openCsvImportDialog">
+            Import CSV
           </v-btn>
           <v-btn variant="tonal" color="primary" @click="refreshAll">
             Refresh
@@ -1807,6 +2039,100 @@ watch(globalCalendarMonth, () => {
         </v-card>
       </div>
 
+      <div v-else-if="viewMode === 'imports'" class="imports-page">
+        <v-card class="imports-card" elevation="8">
+          <div class="contacts-header">
+            <div>
+              <div class="global-calendar-title">Unmatched Asset Import Library</div>
+              <div class="lane-meta">
+                {{ unmatchedAssets.length }} rows awaiting location mapping
+              </div>
+            </div>
+            <div class="calendar-toolbar-actions">
+              <v-select
+                v-model="unmatchedSortBy"
+                :items="unmatchedSortOptions"
+                item-title="title"
+                item-value="value"
+                label="Sort By"
+                density="comfortable"
+                variant="outlined"
+                hide-details
+                class="calendar-month-input"
+              />
+              <v-btn size="small" color="primary" variant="flat" @click="refreshUnmatchedAssets">
+                Refresh
+              </v-btn>
+            </div>
+          </div>
+
+          <div v-if="!sortedUnmatchedAssets.length" class="empty">
+            No unmatched imported rows. CSV rows with unknown locations will appear here.
+          </div>
+
+          <div v-else class="table-wrap">
+            <v-table class="imports-table" density="compact" fixed-header height="520">
+              <thead>
+                <tr>
+                  <th>Source Location</th>
+                  <th>Mapped Location</th>
+                  <th>Asset ID</th>
+                  <th>Manufacturer/Model</th>
+                  <th>Equipment Description</th>
+                  <th>Owner</th>
+                  <th class="imports-col-serial">Serial Number</th>
+                  <th class="imports-col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in sortedUnmatchedAssets" :key="item.id">
+                  <td>{{ formatValue(item.sourceLocation) }}</td>
+                  <td>
+                    <v-select
+                      v-model="item.mappedLocationId"
+                      :items="locationOptions"
+                      item-title="title"
+                      item-value="value"
+                      density="compact"
+                      variant="underlined"
+                      hide-details
+                      clearable
+                      class="inline-select"
+                      @update:model-value="updateUnmatchedMappedLocation(item, item.mappedLocationId ?? null)"
+                    />
+                  </td>
+                  <td>{{ formatValue(item.aid) }}</td>
+                  <td>{{ formatValue(item.manufacturerModel) }}</td>
+                  <td>{{ formatValue(item.equipmentDescription) }}</td>
+                  <td>{{ formatValue(item.owner) }}</td>
+                  <td class="imports-col-serial">{{ formatValue(item.serialNumber) }}</td>
+                  <td class="imports-col-actions">
+                    <v-btn
+                      icon="mdi-pencil"
+                      size="x-small"
+                      variant="text"
+                      @click="openUnmatchedEditDialog(item)"
+                    />
+                    <v-btn
+                      icon="mdi-check-bold"
+                      size="x-small"
+                      variant="text"
+                      @click="promoteUnmatchedAsset(item)"
+                    />
+                    <v-btn
+                      icon="mdi-delete"
+                      size="x-small"
+                      variant="text"
+                      @click="removeUnmatchedAsset(item.id)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+        </v-card>
+      </div>
+
       <div v-else class="contacts-page">
         <v-card class="contacts-card" elevation="8">
           <div class="contacts-header">
@@ -1955,6 +2281,14 @@ watch(globalCalendarMonth, () => {
       <v-card class="dialog-card">
         <v-card-title>{{ assetDialogTitle }}</v-card-title>
         <v-card-text>
+          <div class="asset-checkbox-row">
+            <v-checkbox
+              v-model="assetGmpChecked"
+              label="GMP"
+              density="compact"
+              hide-details
+            />
+          </div>
           <div class="dialog-grid">
             <v-text-field
               v-for="field in assetDialogFields"
@@ -2304,6 +2638,156 @@ watch(globalCalendarMonth, () => {
             @click="submitNote"
           >
             Save Note
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="csvImportDialog" max-width="900">
+      <v-card class="dialog-card">
+        <v-card-title>Import Assets from CSV</v-card-title>
+        <v-card-text>
+          <v-file-input
+            accept=".csv,text/csv"
+            label="Select CSV File"
+            variant="outlined"
+            density="comfortable"
+            show-size
+            @update:model-value="onCsvFileSelected"
+          />
+          <div v-if="csvImportFileName" class="lane-meta import-file-name">
+            Loaded: {{ csvImportFileName }}
+          </div>
+          <v-textarea
+            v-model="csvImportText"
+            label="CSV Content"
+            variant="outlined"
+            density="comfortable"
+            rows="14"
+            hide-details
+            class="import-csv-textarea"
+          />
+          <div class="lane-meta import-helper">
+            Include a header row. Supported headers include Asset ID, Manufacturer/Model,
+            Equipment Description, Location, Owner, Serial Number, SOP, and Notes.
+            Unknown locations are sent to the Import Library.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="csvImportDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="csvImporting"
+            @click="submitCsvImport"
+          >
+            Import CSV
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="unmatchedEditDialog" max-width="900">
+      <v-card class="dialog-card">
+        <v-card-title>Edit Imported Row</v-card-title>
+        <v-card-text>
+          <div class="dialog-grid">
+            <v-text-field
+              v-model="unmatchedDraft.sourceLocation"
+              label="Source Location"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-select
+              v-model="unmatchedDraft.mappedLocationId"
+              label="Mapped Location"
+              :items="locationOptions"
+              item-title="title"
+              item-value="value"
+              clearable
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.aid"
+              label="Asset ID"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.manufacturerModel"
+              label="Manufacturer/Model"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.equipmentDescription"
+              label="Equipment Description"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.location"
+              label="Location (Asset Field)"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.owner"
+              label="Owner"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.serialNumber"
+              label="Serial Number"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.revalidationCertification"
+              label="Revalidation/Certification?"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+            <v-text-field
+              v-model="unmatchedDraft.sop"
+              label="SOP"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+            />
+          </div>
+          <v-textarea
+            v-model="unmatchedDraft.notes"
+            label="Notes"
+            variant="outlined"
+            density="comfortable"
+            rows="3"
+            hide-details
+            class="contact-notes"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="closeUnmatchedEditDialog">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="unmatchedSaving"
+            @click="submitUnmatchedEdit"
+          >
+            Save Changes
           </v-btn>
         </v-card-actions>
       </v-card>
